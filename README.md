@@ -24,9 +24,25 @@ prefix:
 
 - **Dev/preview** — the Vite proxy (`vite.config.ts`) forwards `/xtream/*` to
   `VITE_PANEL_ORIGIN` (defaults to `http://ontvflix.cc:8080`).
-- **Production** — deploy `server/panel-proxy.worker.js` (Cloudflare Worker) or any
-  reverse proxy so `/xtream/*` reaches the panel, keeping HTTPS pages free of mixed
-  content. Set `VITE_PANEL_ORIGIN` at build time if the proxy lives elsewhere.
+- **Production** — run `npm start`, which boots `server.js`: a dependency-free Node
+  server that serves `dist/` and reverse-proxies `/xtream/*` to the panel, keeping
+  HTTPS pages free of mixed content. Alternatively deploy
+  `server/panel-proxy.worker.js` (Cloudflare Worker) or any other reverse proxy.
+
+### Deploying on Node hosting (Hostinger and friends)
+
+Build command `npm run build`, output `dist/`, start command `npm start`, Node 20+.
+Runtime environment variables:
+
+| Variable | Example | Purpose |
+|---|---|---|
+| `PORT` | injected by the host | Port `server.js` listens on |
+| `PANEL_ORIGIN` | `http://ontvflix.cc:8080` | Panel the `/xtream` proxy forwards to |
+| `ALLOWED_HOSTS` | `ontvflix.cc:8080` | Comma-separated hosts the proxy may reach; nothing else is forwarded |
+
+Optional build-time variables (Vite, baked into the bundle): `VITE_PANEL_ORIGIN` and
+`VITE_API_BASE` (default `/xtream`). `GET /healthz` returns the panel origin the server
+resolved, which is the quickest way to confirm a deploy picked up its variables.
 
 Authentication is username/password only — there is no signup. Without credentials the
 app boots into an explicit **Demo catalog** so every screen and playback state can be
