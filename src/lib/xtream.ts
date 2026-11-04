@@ -141,7 +141,14 @@ async function request<T = any>(
         await sleep(RETRY_DELAY_MS * (n + 1))
         return attempt(n + 1)
       }
-      if (response.status === 401 || response.status === 403) {
+      if (response.status === 401) {
+        throw new PanelError(
+          'auth',
+          'The panel rejected these credentials. Check the account and password.',
+          response.status,
+        )
+      }
+      if (response.status === 403) {
         throw new PanelError('auth', 'Subscription rejected by the panel.', response.status)
       }
       throw new PanelError('server', `Panel error ${response.status}`, response.status)
