@@ -62,14 +62,13 @@ export const useEpg = create<EpgStore>((set, get) => ({
     const toast = useUI.getState().toast
     try {
       const { fetchXmltv } = await import('../lib/xtream')
-      toast('Downloading full XMLTV guide…')
+      // Background sync: no start/finish toasts, the guide updates silently.
       const xml = await fetchXmltv()
       const { programmes } = parseXmltv(xml)
       const grouped = groupByChannel(programmes)
       const cache: Record<string, EpgEntry> = { ...get().cache }
       for (const [channelId, list] of grouped) cache[channelId] = { programmes: list, fetchedAt: Date.now(), full: true }
       set({ cache, fullGuideLoaded: true, fullGuideBusy: false })
-      toast(`Guide synced · ${programmes.length.toLocaleString()} programmes`, 'success')
     } catch (err) {
       set({ fullGuideBusy: false })
       toast(err instanceof Error ? err.message : 'Guide download failed', 'error')
