@@ -123,7 +123,7 @@ async function request<T = any>(
       }
       throw new PanelError(
         'network',
-        'Cannot reach the stream panel. Check the portal address, or run through the /xtream proxy.',
+        'Cannot reach Vntera. Check the portal address, or try again in a moment.',
       )
     }
 
@@ -144,14 +144,14 @@ async function request<T = any>(
       if (response.status === 401) {
         throw new PanelError(
           'auth',
-          'The panel rejected these credentials. Check the account and password.',
+          'Vntera rejected these credentials. Check the account and password.',
           response.status,
         )
       }
       if (response.status === 403) {
-        throw new PanelError('auth', 'Subscription rejected by the panel.', response.status)
+        throw new PanelError('auth', 'Vntera rejected this subscription.', response.status)
       }
-      throw new PanelError('server', `Panel error ${response.status}`, response.status)
+      throw new PanelError('server', `Vntera error ${response.status}`, response.status)
     }
 
     if (options.responseType === 'text') return { data: text as T }
@@ -223,7 +223,7 @@ export async function authenticate(
 
   const userInfoRaw = (data as { user_info?: UserInfo }).user_info ?? (data as UserInfo)
   const info = normalizeUserInfo(userInfoRaw)
-  if (!info) throw new PanelError('auth', 'The panel did not return a subscription. Check your username and password.')
+  if (!info) throw new PanelError('auth', 'Vntera did not return a subscription. Check your username and password.')
   if (Number(info.auth) === 0) throw new PanelError('auth', info.message || 'Invalid username or password.')
   if (info.status && /disabled|banned|suspended/i.test(info.status)) {
     throw new PanelError('auth', `Subscription is ${info.status}.`)

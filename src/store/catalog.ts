@@ -53,7 +53,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         set({ snapshot: cached, status: 'ready', progress: 100, phase: '' })
         if (fresh) return
       } else if (!opts.force) {
-        set({ status: 'loading', phase: 'Connecting to panel', progress: 4 })
+        set({ status: 'loading', phase: 'Connecting to Vntera', progress: 4 })
       } else {
         set({ status: 'loading', phase: 'Refreshing catalog', progress: 4 })
       }
@@ -142,7 +142,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         }
 
         if (!live.length && !vod.length && !seriesRaw.length) {
-          throw new PanelError('server', 'The panel returned an empty library. Check that the subscription is active.')
+          throw new PanelError('server', 'Vntera returned an empty library. Check that the subscription is active.')
         }
 
         // The M3U fallback above may have produced channels after the live task.

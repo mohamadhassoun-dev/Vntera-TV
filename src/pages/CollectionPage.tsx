@@ -86,7 +86,7 @@ export default function CollectionPage() {
             body={
               query
                 ? 'Nothing matches that search in this collection.'
-                : 'This panel does not expose a matching category for this collection.'
+                : 'This collection has no matching category on Vntera.'
             }
             action={
               query ? (

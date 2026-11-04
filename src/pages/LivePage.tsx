@@ -79,7 +79,7 @@ export default function LivePage() {
         <EmptyState
           icon="alert"
           title="Could not load your channels"
-          body={error ?? 'The panel did not return a library. Check your session and try again.'}
+          body={error ?? 'Vntera did not return a library. Check your session and try again.'}
           action={
             <button className="btn btn-primary" onClick={() => void load({ force: true })} data-nav="true">
               <Icon name="refresh" size={16} /> Retry sync

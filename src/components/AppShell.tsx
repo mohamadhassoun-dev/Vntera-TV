@@ -145,7 +145,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
         {status === 'reauth' ? (
           <div className="flex items-center justify-between gap-3 bg-crimson-deep/90 px-4 py-2 text-xs md:px-8">
             <span className="flex items-center gap-2 font-semibold text-white">
-              <Icon name="alert" size={14} /> The panel rejected this session. Sign in again to keep watching.
+              <Icon name="alert" size={14} /> Vntera rejected this session. Sign in again to keep watching.
             </span>
             <Link to="/login" className="rounded-[3px] bg-black/40 px-2.5 py-1 font-bold uppercase tracking-wide text-white" data-nav="true">
               Re-authenticate

@@ -468,7 +468,7 @@ export default function DetailsPage() {
               <EmptyState
                 icon="film"
                 title="Episodes unavailable"
-                body={seriesError || 'The panel did not return the episode tree for this series.'}
+                body={seriesError || 'Vntera did not return the episode tree for this series.'}
               />
             )}
           </section>

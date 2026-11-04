@@ -67,7 +67,7 @@ export default function NewPopularPage() {
 
       <div className="shell-x pt-6">
         {!titles.length ? (
-          <EmptyState icon="sparkles" title="Nothing here yet" body="New titles appear as the provider updates the panel." />
+          <EmptyState icon="sparkles" title="Nothing here yet" body="New titles appear as Vntera updates the library." />
         ) : (
           <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 md:gap-3 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
             {titles.map((t, i) => (
