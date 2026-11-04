@@ -44,6 +44,16 @@ Optional build-time variables (Vite, baked into the bundle): `VITE_PANEL_ORIGIN`
 `VITE_API_BASE` (default `/xtream`). `GET /healthz` returns the panel origin the server
 resolved, which is the quickest way to confirm a deploy picked up its variables.
 
+### Static/shared hosting (Hostinger LiteSpeed, PHP only)
+
+If the site is deployed as static files, `server.js` never runs and `/xtream/*` has no
+one to answer it, so sign-in fails with a panel 404. `public/xtream-proxy.php` and
+`public/.htaccess` cover that case: Vite copies both into `dist/`, the rewrite sends
+`/xtream/*` to the PHP bridge (streams to `PANEL_ORIGIN`, honours `ALLOWED_HOSTS`, drops
+panel cookies), and it also supplies the SPA history fallback so deep links work.
+Set the same `PANEL_ORIGIN` / `ALLOWED_HOSTS` variables in the site's PHP environment,
+then check `GET /healthz` — it reports the origin PHP resolved.
+
 Authentication is username/password only — there is no signup. Without credentials the
 app boots into an explicit **Demo catalog** so every screen and playback state can be
 reviewed. Sign in with a real subscription to load the provider's true library.
