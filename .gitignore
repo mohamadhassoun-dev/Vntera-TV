@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# local dev server bookkeeping
+dev-server.log
+dev-server.pid
+*.log
+
+# editor / OS
+.DS_Store
+Thumbs.db
+
+# Freebuff project marker
+.freebuff/
+
+# design-reference exports (code.html + screen.png per screen)
+*_vntera_iptv*/
+*_vntera/
+cinematic_obsidian/
+image.png/
+*.png.tmp
+cloud_dvr_snapshot_vault_*/

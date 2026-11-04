@@ -1,0 +1,593 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------
+   Cinematic Obsidian — Vntera design tokens
+   ------------------------------------------------------------------ */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-canvas: #131313;
+  --color-layer-1: #181818;
+  --color-layer-2: #222222;
+  --color-layer-3: #2a2a2a;
+  --color-layer-4: #353534;
+  --color-stroke: #2a2a2a;
+  --color-ink: #ffffff;
+  --color-ink-soft: #b3b3b3;
+  --color-ink-mute: #757575;
+  --color-crimson: #e50914;
+  --color-crimson-bright: #ff1e2b;
+  --color-crimson-deep: #930007;
+  --color-orange: #ff6b35;
+  --color-live: #00e676;
+  --color-gold: #ffd700;
+  --color-azure: #0071eb;
+  --color-azure-soft: #adc7ff;
+
+  --radius-card: 4px;
+  --radius-panel: 8px;
+
+  --tracking-tightest: -0.04em;
+}
+
+/* ---------------------------- base ---------------------------- */
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    background: #131313;
+    color-scheme: dark;
+    font-size: 16px;
+    scrollbar-width: none;
+  }
+
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-canvas);
+    color: #fff;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+  }
+
+  /* TV / 10-foot mode: scale the whole type system up for couch distance */
+  html[data-form-factor='tv'] {
+    font-size: 21px;
+  }
+
+  ::selection {
+    background: #e50914;
+    color: #fff;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  input,
+  select {
+    outline: none;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  /* Spatial navigation focus ring: luminous, never shifts layout */
+  [data-nav='true'] {
+    outline: none;
+  }
+
+  [data-nav='true']:focus-visible,
+  [data-nav='true'].is-focused {
+    outline: none;
+    box-shadow:
+      0 0 0 2px #fff,
+      0 0 28px rgba(229, 9, 20, 0.65);
+    transform: scale(1.04);
+    z-index: 20;
+  }
+
+  html[data-input='pointer'] [data-nav='true']:focus-visible {
+    transform: none;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+  }
+}
+
+/* ------------------------- utilities ------------------------- */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility text-balance-tight {
+  text-wrap: balance;
+  letter-spacing: -0.02em;
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  .shell-x {
+    padding-inline: 1rem;
+  }
+  @media (min-width: 768px) {
+    .shell-x {
+      padding-inline: 2rem;
+    }
+  }
+  @media (min-width: 1200px) {
+    .shell-x {
+      padding-inline: 3.5rem;
+    }
+  }
+  html[data-form-factor='tv'] .shell-x {
+    padding-inline: 4rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 4px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    transition:
+      transform 0.15s ease,
+      background-color 0.2s ease,
+      box-shadow 0.2s ease,
+      color 0.2s ease;
+    cursor: pointer;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: #e50914;
+    color: #fff;
+    padding: 0.85rem 1.5rem;
+  }
+  .btn-primary:hover {
+    background: #ff1e2b;
+    box-shadow: 0 0 24px rgba(229, 9, 20, 0.55);
+  }
+
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    padding: 0.85rem 1.35rem;
+    backdrop-filter: blur(8px);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.24);
+  }
+
+  .btn-ghost {
+    background: #1c1b1b;
+    color: #e5e2e1;
+    padding: 0.6rem 1rem;
+    border-color: #2a2a2a;
+  }
+  .btn-ghost:hover {
+    background: #2a2a2a;
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 6px;
+    background: #201f1f;
+    border: 1px solid #2a2a2a;
+    color: #e5e2e1;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
+    cursor: pointer;
+  }
+  .icon-btn:hover {
+    background: #353534;
+    color: #fff;
+  }
+
+  .panel {
+    background: #181818;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+  }
+
+  .field {
+    width: 100%;
+    background: #201f1f;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 0.85rem 0.9rem 0.85rem 2.75rem;
+    color: #fff;
+    transition:
+      border-color 0.18s ease,
+      box-shadow 0.18s ease,
+      background-color 0.18s ease;
+  }
+  .field::placeholder {
+    color: #757575;
+  }
+  .field:focus {
+    border-color: #fff;
+    background: #2a2a2a;
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    height: 18px;
+    padding: 0 0.35rem;
+    border-radius: 2px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.6);
+    color: #b3b3b3;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .badge-4k {
+    border-color: #ffd700;
+    color: #ffd700;
+  }
+  .badge-live {
+    border-color: #00e676;
+    color: #00e676;
+    background: rgba(0, 230, 118, 0.15);
+    letter-spacing: 0.1em;
+  }
+  .badge-live .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #00e676;
+    animation: pulse-dot 1.6s infinite ease-in-out;
+  }
+
+  .rail {
+    display: flex;
+    /* Cards keep their own height instead of stretching to the tallest one,
+       which used to leave an empty strip under the posters. */
+    align-items: flex-start;
+    gap: 1rem;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scroll-behavior: smooth;
+    padding-bottom: 0.5rem;
+    padding-top: 0.75rem;
+    margin-top: -0.75rem;
+  }
+  @media (min-width: 768px) {
+    .rail {
+      gap: 1.25rem;
+    }
+  }
+  .rail > * {
+    scroll-snap-align: start;
+    flex: none;
+  }
+  /* Desktop and TV: a brand row's logo is pinned to the left edge while only
+     the posters scroll, so the wordmark never slides out of view. */
+  @media (min-width: 1024px) {
+    .rail-lead {
+      position: sticky;
+      left: 0;
+      z-index: 3;
+      box-shadow: 14px 0 18px -14px rgba(0, 0, 0, 0.95);
+    }
+  }
+  /* Phones used to fit two posters and a sliver of a third. Size the rail's
+     poster cards off the row itself so three cards plus a fifth of the fourth
+     are visible: 3 cards + 3 gaps + 0.2 cards = the full row. */
+  @media (max-width: 767px) {
+    .rail > .poster-card,
+    .rail > .numbered-card,
+    /* Brand rows wrap their logo card, so size the wrapper and let the card fill it. */
+    .rail > .rail-lead {
+      width: calc((100% - 3rem) / 3.2);
+    }
+    .rail > .rail-lead > .poster-card {
+      width: 100%;
+    }
+    /* The rank glyph and the poster share the narrower card. Two digits get
+       their own column on every card, so "10" is exactly as big as "1" and
+       every poster keeps the same width. */
+    .rail > .numbered-card .numbered-rank {
+      font-size: 2rem;
+      /* Wide enough for two digits, so 1 and 10 render identically. */
+      flex: none;
+      width: 1.3em;
+      margin-right: 0;
+      text-align: right;
+    }
+    .rail > .numbered-card .numbered-art {
+      width: auto;
+      /* Only the poster absorbs the leftover room, never the digit column. */
+      flex: 1 1 0;
+      min-width: 0;
+    }
+  }
+  /* allow card focus glow to escape the rail box */
+  .rail {
+    overflow-y: visible;
+  }
+
+  .numbered-card {
+    width: 13.5rem;
+  }
+  @media (min-width: 768px) {
+    .numbered-card {
+      width: 16rem;
+    }
+  }
+
+  .numbered-rank {
+    font-size: 6rem;
+    margin-right: -0.35rem;
+  }
+
+  .poster-card {
+    width: 8.6rem;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #181818;
+    border: 1px solid #2a2a2a;
+    transition:
+      transform 0.22s ease,
+      box-shadow 0.22s ease,
+      border-color 0.22s ease;
+    cursor: pointer;
+    text-align: left;
+  }
+  @media (min-width: 768px) {
+    .poster-card {
+      width: 10.5rem;
+    }
+  }
+  @media (min-width: 1200px) {
+    .poster-card {
+      width: 11.6rem;
+    }
+  }
+  html[data-form-factor='tv'] .poster-card {
+    width: 12rem;
+  }
+  .poster-card:hover,
+  .poster-card:focus-visible {
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+
+  .wide-card {
+    width: 17rem;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #181818;
+    border: 1px solid #2a2a2a;
+    transition:
+      transform 0.22s ease,
+      box-shadow 0.22s ease;
+    cursor: pointer;
+    text-align: left;
+  }
+  @media (min-width: 768px) {
+    .wide-card {
+      width: 19rem;
+    }
+  }
+  @media (min-width: 1200px) {
+    .wide-card {
+      width: 21rem;
+    }
+  }
+
+  .skeleton {
+    background: linear-gradient(100deg, #1c1b1b 30%, #2a2a2a 48%, #1c1b1b 66%);
+    background-size: 220% 100%;
+    animation: shimmer 1.6s linear infinite;
+    border-radius: 4px;
+  }
+
+  .section-title {
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  @media (min-width: 768px) {
+    .section-title {
+      font-size: 1.6rem;
+    }
+  }
+
+  .tab {
+    padding: 0.5rem 0.95rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #b3b3b3;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      background-color 0.15s ease;
+  }
+  .tab:hover {
+    color: #fff;
+    background: #201f1f;
+  }
+  .tab[aria-selected='true'] {
+    color: #fff;
+    background: #2a2a2a;
+    border-color: #353534;
+  }
+
+  .provider-chip {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 0.35rem;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #fff;
+  }
+
+  .scrim-bottom {
+    background: linear-gradient(to top, #131313 4%, rgba(19, 19, 19, 0.75) 45%, transparent 100%);
+  }
+  .scrim-hero {
+    background:
+      linear-gradient(to top, #131313 2%, rgba(19, 19, 19, 0.72) 38%, rgba(19, 19, 19, 0.1) 100%),
+      linear-gradient(to right, #131313 0%, rgba(19, 19, 19, 0.9) 38%, transparent 82%);
+  }
+
+  .hairline {
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes splash-mark {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+    filter: blur(8px);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.splash-mark {
+  animation: splash-mark 1.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes bar-fill {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+.splash-bar {
+  animation: bar-fill 2.1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* A rail whose cards all failed to load removes itself instead of leaving a heading. */
+.rail-section:has(.rail:empty) {
+  display: none;
+}
+
+/* Hero slide indicator: the active dot fills over the slide's duration. */
+.hero-dot-fill {
+  transform-origin: left center;
+  animation-name: hero-dot-fill;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes hero-dot-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Nothing to animate: show the indicator already filled. */
+  .hero-dot-fill {
+    transform: none !important;
+  }
+}
