@@ -118,6 +118,13 @@
     transform: none;
     box-shadow: none;
   }
+
+  /* Nothing on a touch or mouse surface may draw a focus outline: the browser's
+     default ring is a white box, and a tap is not a keyboard focus. */
+  html[data-input='pointer'] :focus,
+  html[data-input='pointer'] :focus-visible {
+    outline: none;
+  }
 }
 
 /* ------------------------- utilities ------------------------- */
@@ -250,10 +257,12 @@
   .field::placeholder {
     color: #757575;
   }
+  /* Crimson, not white: the field stays obviously focused without a white frame
+     appearing the moment a finger lands in it. */
   .field:focus {
-    border-color: #fff;
+    border-color: #e50914;
     background: #2a2a2a;
-    box-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
+    box-shadow: 0 0 12px rgba(229, 9, 20, 0.22);
   }
 
   .badge {
@@ -399,8 +408,14 @@
   html[data-form-factor='tv'] .poster-card {
     width: 12rem;
   }
-  .poster-card:hover,
-  .poster-card:focus-visible {
+  /* Only a real pointer hovers, and only the TV surface paints a focus frame: on
+     a handset the tapped card must not keep a pale border. */
+  @media (hover: hover) and (pointer: fine) {
+    .poster-card:hover {
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+  }
+  html[data-form-factor='tv'] .poster-card:focus-visible {
     border-color: rgba(255, 255, 255, 0.35);
   }
 

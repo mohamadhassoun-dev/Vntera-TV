@@ -24,6 +24,7 @@ export type IconName =
   | 'mute'
   | 'maximize'
   | 'minimize'
+  | 'rotate'
   | 'pip'
   | 'cast'
   | 'subtitles'
@@ -146,6 +147,13 @@ const P: Record<IconName, React.ReactNode> = {
   ),
   maximize: <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />,
   minimize: <path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5" />,
+  // A phone turning on its side: the "turn the picture" control.
+  rotate: (
+    <>
+      <rect x="7" y="2" width="10" height="17" rx="2" />
+      <path d="M3 17a9 9 0 0 0 3 4.5M21 7a9 9 0 0 0-3-4.5" />
+    </>
+  ),
   pip: (
     <>
       <rect x="2" y="4" width="20" height="15" rx="2" />

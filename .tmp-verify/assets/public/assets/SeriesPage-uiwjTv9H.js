@@ -1,0 +1,1 @@
+import{j as r}from"./vendor-D5VyG20a.js";import{C as t}from"./CatalogPage-D-b_pbuu.js";import"./cards-BhqN5xo_.js";import"./index-tNpGccp9.js";import"./format-CheokJ12.js";import"./epg-CB0VvufJ.js";import"./Feedback-8ZNvfeYG.js";function n(){return r.jsx(t,{kind:"series"})}export{n as default};

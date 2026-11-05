@@ -146,6 +146,9 @@ export function Player({
   /** In-app cinema mode: fills the screen and turns the picture landscape on phones. */
   const [cinema, setCinema] = useState(false)
   const [portrait, setPortrait] = useState(false)
+  /** null follows the handset, true keeps the picture turned even when it is
+   *  held upright, false keeps it upright. Driven by the rotate control. */
+  const [turnOverride, setTurnOverride] = useState<boolean | null>(null)
   const [pipActive, setPipActive] = useState(false)
   const [audioOnly, setAudioOnly] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -157,6 +160,14 @@ export function Player({
   const [liveWindow, setLiveWindow] = useState<{ start: number; end: number } | null>(null)
 
   const castable = useMemo(() => canCastVideo(videoRef.current), [src])
+  /** A handset or the packaged app can lay the picture landscape; a desktop
+   *  window rotates with the monitor instead. */
+  const touchSurface = useMemo(
+    () =>
+      isNativeShell() ||
+      (typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches)),
+    [],
+  )
 
   useWakeLock(playing && !audioOnly)
 
@@ -596,6 +607,8 @@ export function Player({
   }, [])
 
   const expanded = cinema || fullscreen
+  /** Whether the cinema surface turns the picture ninety degrees. */
+  const rotated = cinema && (turnOverride ?? portrait)
 
   const toggleFullscreen = useCallback(async () => {
     const node = containerRef.current
@@ -606,6 +619,7 @@ export function Player({
     }
     if (cinema) {
       setCinema(false)
+      setTurnOverride(null)
       return
     }
     // A WebView shell accepts requestFullscreen() and then shows nothing, so the
@@ -631,11 +645,24 @@ export function Player({
     reveal()
   }, [cinema, reveal])
 
+  /**
+   * "Turn the picture": expand into the cinema surface and lay the video
+   * landscape even while the handset is upright, then lay it upright again.
+   */
+  const toggleRotation = useCallback(() => {
+    setCinema(true)
+    setTurnOverride(!(cinema && (turnOverride ?? portrait)))
+    reveal()
+  }, [cinema, portrait, turnOverride, reveal])
+
   // Leaving the player also leaves cinema mode.
   useEffect(() => {
     if (!cinema) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setCinema(false)
+      if (e.key === 'Escape') {
+        setCinema(false)
+        setTurnOverride(null)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -843,7 +870,7 @@ export function Player({
     const ratio = trackRatio(
       { x: clientX, y: clientY },
       element.getBoundingClientRect(),
-      trackAxis(cinema && portrait),
+      trackAxis(rotated),
     )
     const video = videoRef.current
     if (!video) return
@@ -869,7 +896,7 @@ export function Player({
         showControls || menu !== 'none' ? 'cursor-auto' : 'cursor-none'
       }`}
       style={
-        cinema && portrait
+        rotated
           ? {
               position: 'fixed',
               left: '50%',
@@ -1285,6 +1312,18 @@ export function Player({
                   <Icon name="pip" size={18} className={pipActive ? 'text-crimson' : ''} />
                 </button>
               ) : null}
+              {touchSurface ? (
+                <button
+                  className="icon-btn !border-0 !bg-transparent"
+                  onClick={toggleRotation}
+                  data-nav="true"
+                  aria-label="Turn the picture"
+                  title="Turn the picture"
+                  aria-pressed={rotated}
+                >
+                  <Icon name="rotate" size={18} className={rotated ? 'text-crimson' : ''} />
+                </button>
+              ) : null}
               <button
                 className="icon-btn !border-0 !bg-transparent"
                 onClick={() => void toggleFullscreen()}
@@ -1364,6 +1403,9 @@ export function Player({
                     <MenuRow active={audioOnly} onClick={toggleAudioOnly} label="Audio only" meta="Keep sound, drop video" />
                     {!isLive ? <MenuRow active={!!pipActive} onClick={() => void togglePip()} label="Picture-in-Picture" /> : null}
                     <MenuRow active={fullscreen} onClick={() => void toggleFullscreen()} label="Fullscreen" />
+                    {touchSurface ? (
+                      <MenuRow active={rotated} onClick={toggleRotation} label="Turn the picture" meta="Play landscape" />
+                    ) : null}
                   </>
                 ) : null}
               </div>
