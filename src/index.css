@@ -786,7 +786,10 @@ html[data-form-factor='tv'] .app-profile-icon {
       box-shadow 0.26s ease,
       border-color 0.26s ease;
   }
-  /* The focused card: bigger, framed in crimson, lifted off the row. */
+  /* The focused card: bigger, framed in crimson, lifted off the row. Keyed on
+     real focus (a television has no pointer) as well as the nav class, because
+     React owns the class and drops it whenever the row re-renders. */
+  html[data-form-factor='tv'] .rail > .poster-card:focus,
   html[data-form-factor='tv'] .rail > .poster-card.is-focused,
   html[data-form-factor='tv'] .rail > .poster-card:focus-visible {
     position: relative;
@@ -798,8 +801,8 @@ html[data-form-factor='tv'] .app-profile-icon {
       0 24px 44px -22px rgba(0, 0, 0, 0.95);
   }
   /* Everything else in that row steps back, just out of focus. */
-  html[data-form-factor='tv'] .rail:focus-within > .poster-card:not(.is-focused):not(:focus-visible),
-  html[data-form-factor='tv'] .rail:has(> .poster-card.is-focused) > .poster-card:not(.is-focused):not(:focus-visible) {
+  html[data-form-factor='tv'] .rail:focus-within > .poster-card:not(:focus):not(.is-focused),
+  html[data-form-factor='tv'] .rail:has(> .poster-card.is-focused) > .poster-card:not(:focus):not(.is-focused) {
     filter: blur(1px);
   }
 }
