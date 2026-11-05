@@ -662,10 +662,14 @@ export function Player({
       setTurnOverride(null)
       return
     }
-    // A WebView shell accepts requestFullscreen() and then shows nothing, so the
-    // packaged app always gets the in-app surface instead.
+    // A WebView shell accepts requestFullscreen() and then cancels the platform
+    // fullscreen view outright (Capacitor's onShowCustomView hides it at once), so
+    // the packaged app has only the in-app surface. On an upright handset that
+    // surface is no wider than the page already is — the picture only gets big
+    // when it turns, which is what fullscreen means on a phone.
     if (isNativeShell()) {
       setCinema(true)
+      if (portrait) setTurnOverride(true)
       reveal()
       return
     }
@@ -683,7 +687,7 @@ export function Player({
     }
     setCinema(true)
     reveal()
-  }, [cinema, reveal])
+  }, [cinema, portrait, reveal])
 
   /**
    * "Turn the picture": expand into the cinema surface and lay the video
@@ -977,6 +981,13 @@ export function Player({
         playsInline
         className={`h-full w-full object-contain ${audioOnly ? 'opacity-0' : 'opacity-100'} transition-opacity`}
         onClick={() => {
+          // The faded chrome is not clickable, so a tap that was aimed at one of
+          // its buttons used to land here and pause the film instead of opening
+          // the controls. A tap on a bare picture only ever brings them back.
+          if (!showControls) {
+            reveal()
+            return
+          }
           setMenu('none')
           togglePlay()
           reveal()
