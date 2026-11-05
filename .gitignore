@@ -1,6 +1,23 @@
 # dependencies
 node_modules/
 
+# local build toolchain (JDK downloads used only to compile the APK)
+.tools/
+
+# Android build output and machine-local SDK/signing material
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/keystore.properties
+android/keystore/
+android/app/src/main/assets/public/
+*.jks
+*.keystore
+
+# built installers
+release/
+
 # build output
 dist/
 *.tsbuildinfo

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vntera</string>
+    <string name="title_activity_main">Vntera</string>
+    <string name="package_name">com.vntera.iptv</string>
+    <string name="custom_url_scheme">com.vntera.iptv</string>
+</resources>

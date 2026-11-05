@@ -44,6 +44,36 @@ Optional build-time variables (Vite, baked into the bundle): `VITE_PANEL_ORIGIN`
 `VITE_API_BASE` (default `/xtream`). `GET /healthz` returns the panel origin the server
 resolved, which is the quickest way to confirm a deploy picked up its variables.
 
+### Android APK
+
+The phone app is a Capacitor shell around the same bundle, so the website and the
+APK share one codebase. A bundled WebView has no same-origin proxy, so the APK is
+compiled with `VITE_API_BASE` pointing at the deployed bridge
+(`http://movies.vntera.com/xtream`); the site build keeps the relative `/xtream`.
+
+```bash
+npm run apk                      # release APK -> release/vntera-<version>.apk
+npm run apk -- --api-base http://other.host/xtream
+```
+
+What the script does: builds the web bundle with that API base, copies it into
+`android/` (`cap sync`), runs `gradlew assembleRelease`, and drops the signed APK
+in `release/`.
+
+Requirements on the build machine:
+
+- Android SDK with platform 36 and build-tools (pointed at by `android/local.properties`).
+- **JDK 21** — Gradle 8.14 / AGP 8.13 do not run on Java 26. The script uses
+  `JAVA_HOME`, or a `.tools/jdk-21*` folder next to the project.
+- `android/keystore.properties` plus the keystore it names. Both are git-ignored;
+  the generated `android/keystore/vntera-release.jks` (alias `vntera`) is the
+  upload key — **back it up**, every future update must be signed with it.
+
+App identity: `com.vntera.iptv`, version `1.0.0` (versionCode 1), min SDK 24,
+target SDK 36. The manifest allows cleartext traffic because the panel is HTTP.
+Launcher icons and the splash screen are generated from `public/icon-512.png`
+with `npx capacitor-assets generate --android`.
+
 ### Static/shared hosting (Hostinger LiteSpeed, PHP only)
 
 If the site is deployed as static files, `server.js` never runs and `/xtream/*` has no

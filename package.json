@@ -10,9 +10,12 @@
     "start": "node server.js",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run"
+    "test": "vitest run",
+    "apk": "node scripts/build-apk.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
     "hls.js": "^1.6.5",
     "mpegts.js": "^1.8.2",
     "react": "^19.1.0",
@@ -21,6 +24,8 @@
     "zustand": "^5.0.5"
   },
   "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.0",
     "@tailwindcss/vite": "^4.1.8",
     "@types/node": "^22.20.5",
     "@types/react": "^19.1.6",
