@@ -9,6 +9,7 @@ import { useAuth } from './store/auth'
 import { useCatalog } from './store/catalog'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
+const DownloadPage = lazy(() => import('./pages/DownloadPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const LivePage = lazy(() => import('./pages/LivePage'))
 const MoviesPage = lazy(() => import('./pages/MoviesPage'))
@@ -79,6 +80,15 @@ export default function App() {
   }, [formFactor, navigate])
 
   if (status === 'booting' || !booted) return <Splash />
+
+  // The app download page is public: it is how a phone gets the app in the first place.
+  if (location.pathname === '/download') {
+    return (
+      <Suspense fallback={<Splash />}>
+        <DownloadPage />
+      </Suspense>
+    )
+  }
 
   if (status === 'anon') {
     return (

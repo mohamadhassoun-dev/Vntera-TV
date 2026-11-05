@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Icon } from '../components/Icons'
 import { PANEL_ORIGIN } from '../lib/config'
 import { useAuth } from '../store/auth'
@@ -154,6 +154,9 @@ export default function LoginPage() {
 
       <footer className="relative z-10 flex flex-col items-center justify-between gap-2 px-4 py-4 text-[10px] text-ink-mute sm:flex-row md:px-8">
         <span className="font-bold uppercase tracking-wider">Stream engine core v1.0</span>
+        <Link to="/download" className="flex items-center gap-1.5 font-bold uppercase tracking-wider hover:text-white" data-nav="true">
+          <Icon name="download" size={12} /> Get the Android app
+        </Link>
         <span>© {new Date().getFullYear()} Vntera Media Networks</span>
       </footer>
 

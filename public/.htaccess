@@ -21,9 +21,12 @@
   RewriteRule . /index.html [L]
 </IfModule>
 
+# Android packages are versioned by file name, so serve them as downloads.
+AddType application/vnd.android.package-archive .apk
+
 <IfModule mod_headers.c>
   # Hashed build output never changes; keep HTML fresh.
-  <FilesMatch "\.(js|css|woff2?|png|jpe?g|webp|svg|mp4)$">
+  <FilesMatch "\.(js|css|woff2?|png|jpe?g|webp|svg|mp4|apk)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
   <FilesMatch "index\.html$">
