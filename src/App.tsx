@@ -41,7 +41,9 @@ export default function App() {
   const [booted, setBooted] = useState(false)
   /** The smiley loader has had its turn; a slow catalogue shows the page itself. */
   const [splashSpent, setSplashSpent] = useState(false)
-  const catalogReady = useCatalog((s) => s.snapshot !== null)
+  // The catalogue publishes the live channels first and the movies later, so the
+  // home page is only worth showing once the whole pull has landed.
+  const catalogComplete = useCatalog((s) => s.progress >= 100)
   const catalogProgress = useCatalog((s) => s.progress)
 
   useEffect(() => {
@@ -88,9 +90,10 @@ export default function App() {
     return uninstall
   }, [formFactor, navigate])
 
-  // Until the first catalogue page is in, the smiley is the only thing on screen,
-  // so nobody watches an empty shell with a skeleton in it.
-  const catalogPending = (status === 'authed' || status === 'reauth') && !catalogReady && !splashSpent
+  // Until the whole catalogue is in, the smiley is the only thing on screen, so
+  // nobody watches an empty shell with a skeleton in it.
+  const catalogPending =
+    (status === 'authed' || status === 'reauth') && !catalogComplete && !splashSpent
   if (status === 'booting' || !booted || catalogPending) return <Splash progress={catalogProgress} />
 
   // The app download page is public: it is how a phone gets the app in the first place.
