@@ -3,7 +3,7 @@ import { useCatalog } from '../store/catalog'
 import { useEpg } from '../store/epg'
 import { useLibrary } from '../store/library'
 import { useSettings } from '../store/settings'
-import { takeUnannounced } from './notifications'
+import { notificationKey, takeUnannounced } from './notifications'
 import type { CatalogSnapshot, EpgProgramme, NotificationItem, Title } from '../types'
 
 type AddNotification = (item: Omit<NotificationItem, 'id' | 'createdAt' | 'read'>) => void
@@ -112,6 +112,16 @@ function diffCatalog(snapshot: CatalogSnapshot, previous: CatalogSnapshot | null
   // A panel re-index hands the same show a new stream id; identity is what stops
   // it from being announced a second time.
   const seen = new Set(readSeen(account))
+  // Announcements made before the seen list existed are re-derived from the
+  // centre itself, so a title already on the list is never announced again.
+  const announced = new Set(
+    useLibrary
+      .getState()
+      .notifications.filter((n) => n.kind === 'content')
+      .map((n) => notificationKey(n)),
+  )
+  const alreadyAnnounced = (title: Title) =>
+    announced.has(notificationKey(newTitleNotification(title)))
 
   const nextMovieIds = snapshot.movies.map((t) => String(t.id))
   const nextSeriesIds = snapshot.series.map((t) => String(t.id))
@@ -125,7 +135,7 @@ function diffCatalog(snapshot: CatalogSnapshot, previous: CatalogSnapshot | null
     const recent = [...snapshot.movies, ...snapshot.series]
       .filter((t) => t.hasArtwork && t.addedAt > 0 && Date.now() / 1000 - t.addedAt <= 14 * 86_400)
       .sort((a, b) => b.addedAt - a.addedAt)
-    const fresh = takeUnannounced(recent, seen, 3)
+    const fresh = takeUnannounced(recent, seen, 3, alreadyAnnounced)
     for (const title of fresh.reverse()) add(newTitleNotification(title))
     writeSeen(account, [...seen])
     return
@@ -148,11 +158,13 @@ function diffCatalog(snapshot: CatalogSnapshot, previous: CatalogSnapshot | null
       addedMovies.sort((a, b) => b.addedAt - a.addedAt),
       seen,
       MAX_ADDED,
+      alreadyAnnounced,
     )
     const announceSeries = takeUnannounced(
       addedSeries.sort((a, b) => b.addedAt - a.addedAt),
       seen,
       2,
+      alreadyAnnounced,
     )
     announceMovies.forEach((title) => add(newTitleNotification(title)))
     announceSeries.forEach((title) => add(newTitleNotification(title)))

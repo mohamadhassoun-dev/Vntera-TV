@@ -46,6 +46,15 @@ describe('notification centre', () => {
     expect(alertTitleKey(series(41, 'دافئته سوا (2026)'))).not.toBe(alertTitleKey(series(41, 'دافئته سوا (2026)', { kind: 'movie' })))
   })
 
+  it('treats an announcement already in the centre as seen', () => {
+    const seen = new Set<string>()
+    const existing = new Set([alertTitleKey(series(4, 'حب أسود (2026)'))])
+    const alreadyAnnounced = (title: Title) => existing.has(alertTitleKey(title))
+    expect(takeUnannounced([series(88, 'حب أسود (2026)')], seen, 3, alreadyAnnounced)).toEqual([])
+    // Marked seen on the way through, so it stays quiet even if the list is cleared.
+    expect(seen.has(alertTitleKey(series(1, 'حب أسود (2026)')))).toBe(true)
+  })
+
   it('announces each title once, even when a batch repeats it', () => {
     const seen = new Set<string>()
     const batch = [series(1, 'أحلى نصيب (2026)'), series(2, 'أحلى نصيب (2026)'), series(3, 'حب أسود (2026)')]

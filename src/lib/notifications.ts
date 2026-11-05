@@ -34,6 +34,7 @@ export function takeUnannounced(
   titles: readonly Title[],
   seen: Set<string>,
   limit = Number.POSITIVE_INFINITY,
+  alreadyAnnounced?: (title: Title) => boolean,
 ): Title[] {
   const picked: Title[] = []
   for (const title of titles) {
@@ -41,6 +42,9 @@ export function takeUnannounced(
     const key = alertTitleKey(title)
     if (seen.has(key)) continue
     seen.add(key)
+    // An announcement already sitting in the centre counts as seen, so clearing
+    // the list does not make the same title new again.
+    if (alreadyAnnounced?.(title)) continue
     picked.push(title)
   }
   return picked
