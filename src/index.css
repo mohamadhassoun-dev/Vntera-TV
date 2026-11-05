@@ -739,10 +739,14 @@
    ------------------------------------------------------------------ */
 html[data-form-factor='tv'] .app-nav {
   display: flex;
-  gap: 0.85rem;
+  flex-wrap: nowrap;
+  gap: 0.7rem;
 }
+/* Two-line labels ("Live / TV") read as broken text at ten feet, so a label
+   never wraps; the row is measured to fit at 960px. */
 html[data-form-factor='tv'] .app-nav a {
   font-size: 0.8rem;
+  white-space: nowrap;
 }
 html[data-form-factor='tv'] .app-menu-toggle,
 html[data-form-factor='tv'] .app-profile-icon {
