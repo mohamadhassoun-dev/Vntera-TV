@@ -24,16 +24,17 @@ import {
   scheduleNextUtcWeekUpdate,
   selectUniqueNewTitles,
   selectUniqueRailTitles,
-  takeUnusedTitles,
   utcRotationIndex,
   utcWeekIndex,
 } from '../lib/homeRotation'
+import { heroCandidatePool, selectHeroRotation } from '../lib/heroRotation'
 import { collectionTitles } from '../lib/collections'
 import { musicChannelTitles } from '../lib/musicChannels'
 import { arabicChannelFamilies } from '../lib/arabicChannels'
 import { isHiddenFromHome } from '../lib/hidden'
 import { categoriesWithCounts, useCatalog } from '../store/catalog'
 import { defaultShortcutItems, resolveShortcuts, useShortcuts } from '../store/shortcuts'
+import { useHeroHistory } from '../store/heroHistory'
 import { continueWatching, useLibrary } from '../store/library'
 import type { Provider, Title } from '../types'
 
@@ -43,15 +44,9 @@ const BRAND_RAIL_ORDER: HomeRailBrand[] = ['netflix', 'prime', 'shahid', 'disney
 const RAIL_LIMIT = 24
 const PROVIDER_MIN_ITEMS = 10
 const TOP_TEN_COUNT = 10
-const HERO_SLIDES = 5
 const WEEK_SECONDS = 7 * 86_400
 /** IMDb is not a panel category: the row curates the catalog's top-rated movies. */
 const IMDB_MIN_RATING = 6.5
-
-/** The hero only features the panel's English movie sections. */
-function isEnglishCategory(title: Title): boolean {
-  return /^\s*EN\b/i.test(title.categoryName)
-}
 
 interface HomeRows {
   hero: Title[]
@@ -64,19 +59,24 @@ interface HomeRows {
   popular: Title[]
 }
 
-/** Every rail on the page, for one week, plus the hero for one three-day
- *  rotation. Pure over the catalog, so the result is kept per movie list:
- *  opening a channel and pressing back must not rebuild eleven sorts over 46k
- *  titles again. */
+/** Every rail on the page, for one week, plus the hero line-up chosen for the
+ *  current three-day rotation. Pure over the catalog, so the result is kept per
+ *  movie list: opening a channel and pressing back must not rebuild eleven sorts
+ *  over 46k titles again. */
 const rowsCache = new WeakMap<readonly Title[], Map<string, HomeRows>>()
 
-export function computeHomeRows(allMovies: readonly Title[], weekIndex: number, rotationIndex: number): HomeRows {
+export function computeHomeRows(
+  allMovies: readonly Title[],
+  weekIndex: number,
+  rotationIndex: number,
+  heroIds: readonly number[] = [],
+): HomeRows {
   let byWeek = rowsCache.get(allMovies)
   if (!byWeek) {
     byWeek = new Map()
     rowsCache.set(allMovies, byWeek)
   }
-  const cacheKey = `${weekIndex}:${rotationIndex}`
+  const cacheKey = `${weekIndex}:${rotationIndex}:${heroIds.join(',')}`
   const cached = byWeek.get(cacheKey)
   if (cached) return cached
 
@@ -96,10 +96,6 @@ export function computeHomeRows(allMovies: readonly Title[], weekIndex: number, 
     (a, b) => (b.watchCount ?? 0) - (a.watchCount ?? 0) || (b.rating ?? 0) - (a.rating ?? 0),
   )
 
-  // The hero features popular English movies only; the slideshow pages through
-  // that pool five at a time, one page per three-day rotation.
-  const popular = popularPool.filter(isEnglishCategory)
-
   const imdbPool = movies
     .filter((movie) => (movie.rating ?? 0) >= IMDB_MIN_RATING)
     .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || (b.watchCount ?? 0) - (a.watchCount ?? 0))
@@ -110,9 +106,13 @@ export function computeHomeRows(allMovies: readonly Title[], weekIndex: number, 
   const take = (pool: readonly Title[], railKey: string, limit: number) =>
     selectUniqueRailTitles(pool, railKey, weekIndex, limit, usage)
 
-  const heroOffset = popular.length ? (rotationIndex * HERO_SLIDES) % popular.length : 0
-  const heroOrder = heroOffset ? [...popular.slice(heroOffset), ...popular.slice(0, heroOffset)] : popular
-  const hero = takeUnusedTitles(heroOrder, HERO_SLIDES, usage)
+  // The hero line-up is chosen outside this function, where the no-repeat history
+  // lives; it comes from the Popular and Blockbusters pools, so keeping its
+  // movies out of the rails below stops the same poster appearing twice.
+  const moviesById = new Map(movies.map((movie) => [movie.id, movie]))
+  const hero = heroIds
+    .map((id) => moviesById.get(id))
+    .filter((movie): movie is Title => Boolean(movie))
   reserveTitles(usage, hero)
   const topTen = take(movies, 'top-ten', TOP_TEN_COUNT)
   const brands = BRAND_RAIL_ORDER.map((brand) => ({
@@ -171,9 +171,30 @@ export default function HomePage() {
   }, [rotationIndex])
 
   const movies = useMemo(() => snapshot?.movies ?? [], [snapshot])
+  // Hero candidates: the Popular on Vntera ranking and the Blockbusters set.
+  const heroPool = useMemo(() => heroCandidatePool(movies), [movies])
+  const heroShown = useHeroHistory((state) => state.shown)
+  const recordHero = useHeroHistory((state) => state.record)
+  const restartHero = useHeroHistory((state) => state.restart)
+  const heroPicks = useMemo(
+    () => selectHeroRotation(heroPool, heroShown, rotationIndex),
+    [heroPool, heroShown, rotationIndex],
+  )
+  const heroIds = useMemo(() => heroPicks.map((movie) => movie.id), [heroPicks])
+
+  // Remember this rotation's line-up so none of its movies returns in a later
+  // one; an exhausted pool starts a fresh cycle instead of an empty hero.
+  useEffect(() => {
+    if (!heroIds.length) {
+      if (heroPool.length) restartHero(rotationIndex)
+      return
+    }
+    recordHero(rotationIndex, heroIds)
+  }, [heroIds, heroPool.length, rotationIndex, recordHero, restartHero])
+
   const rows = useMemo(
-    () => computeHomeRows(movies, weekIndex, rotationIndex),
-    [movies, weekIndex, rotationIndex],
+    () => computeHomeRows(movies, weekIndex, rotationIndex, heroIds),
+    [movies, weekIndex, rotationIndex, heroIds],
   )
   // Live music channels, cached per catalogue so back navigation stays instant.
   const music = useMemo(() => (snapshot ? musicChannelTitles(snapshot.channels) : []), [snapshot])
