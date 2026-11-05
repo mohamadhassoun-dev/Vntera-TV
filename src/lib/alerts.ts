@@ -3,11 +3,15 @@ import { useCatalog } from '../store/catalog'
 import { useEpg } from '../store/epg'
 import { useLibrary } from '../store/library'
 import { useSettings } from '../store/settings'
+import { takeUnannounced } from './notifications'
 import type { CatalogSnapshot, EpgProgramme, NotificationItem, Title } from '../types'
 
 type AddNotification = (item: Omit<NotificationItem, 'id' | 'createdAt' | 'read'>) => void
 
 const idsKey = (account: string) => `vntera:alerts:ids:${account}`
+const seenKey = (account: string) => `vntera:alerts:seen:${account}`
+/** Titles this profile has already been told about, by identity not stream id. */
+const MAX_SEEN = 4000
 const EVENTS_KEY = 'vntera:alerts:events'
 const GUIDE_KEY = 'vntera:alerts:guide'
 const GUIDE_REFRESH_MS = 6 * 60 * 60 * 1000
@@ -55,6 +59,24 @@ function writeIds(account: string, state: IdState) {
   }
 }
 
+function readSeen(account: string): string[] {
+  try {
+    const raw = localStorage.getItem(seenKey(account))
+    const parsed = raw ? (JSON.parse(raw) as unknown) : []
+    return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writeSeen(account: string, keys: readonly string[]) {
+  try {
+    localStorage.setItem(seenKey(account), JSON.stringify(keys.slice(-MAX_SEEN)))
+  } catch {
+    /* Non-fatal. */
+  }
+}
+
 function readEvents(): string[] {
   try {
     const raw = localStorage.getItem(EVENTS_KEY)
@@ -87,6 +109,9 @@ function newTitleNotification(title: Title): Omit<NotificationItem, 'id' | 'crea
 function diffCatalog(snapshot: CatalogSnapshot, previous: CatalogSnapshot | null, add: AddNotification) {
   const account = snapshot.account
   const state = readIds(account)
+  // A panel re-index hands the same show a new stream id; identity is what stops
+  // it from being announced a second time.
+  const seen = new Set(readSeen(account))
 
   const nextMovieIds = snapshot.movies.map((t) => String(t.id))
   const nextSeriesIds = snapshot.series.map((t) => String(t.id))
@@ -97,11 +122,12 @@ function diffCatalog(snapshot: CatalogSnapshot, previous: CatalogSnapshot | null
   // titles, but surface the freshest additions so the centre is not empty.
   if (!state) {
     writeIds(account, { movies: nextMovieIds.join(','), series: nextSeriesIds.join(','), builtAt: snapshot.builtAt })
-    const fresh = [...snapshot.movies, ...snapshot.series]
+    const recent = [...snapshot.movies, ...snapshot.series]
       .filter((t) => t.hasArtwork && t.addedAt > 0 && Date.now() / 1000 - t.addedAt <= 14 * 86_400)
       .sort((a, b) => b.addedAt - a.addedAt)
-      .slice(0, 3)
+    const fresh = takeUnannounced(recent, seen, 3)
     for (const title of fresh.reverse()) add(newTitleNotification(title))
+    writeSeen(account, [...seen])
     return
   }
 
@@ -118,14 +144,18 @@ function diffCatalog(snapshot: CatalogSnapshot, previous: CatalogSnapshot | null
   const reindex = addedTotal > REINDEX_THRESHOLD || removedTotal > REINDEX_THRESHOLD
 
   if (!reindex) {
-    addedMovies
-      .sort((a, b) => b.addedAt - a.addedAt)
-      .slice(0, MAX_ADDED)
-      .forEach((title) => add(newTitleNotification(title)))
-    addedSeries
-      .sort((a, b) => b.addedAt - a.addedAt)
-      .slice(0, 2)
-      .forEach((title) => add(newTitleNotification(title)))
+    const announceMovies = takeUnannounced(
+      addedMovies.sort((a, b) => b.addedAt - a.addedAt),
+      seen,
+      MAX_ADDED,
+    )
+    const announceSeries = takeUnannounced(
+      addedSeries.sort((a, b) => b.addedAt - a.addedAt),
+      seen,
+      2,
+    )
+    announceMovies.forEach((title) => add(newTitleNotification(title)))
+    announceSeries.forEach((title) => add(newTitleNotification(title)))
 
     const names = new Map<number, string>()
     previous?.movies.forEach((t) => names.set(t.id, t.name))
@@ -154,6 +184,7 @@ function diffCatalog(snapshot: CatalogSnapshot, previous: CatalogSnapshot | null
     series: nextSeriesIds.join(','),
     builtAt: snapshot.builtAt,
   })
+  writeSeen(account, [...seen])
 }
 
 /** Catalog-change and football alerts. Mounted once in the app shell. */

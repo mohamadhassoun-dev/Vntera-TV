@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ListEntry, MediaKind, NotificationItem, ProgressEntry, Title } from '../types'
+import { dedupeNotifications, notificationKey } from '../lib/notifications'
 
 interface LibraryStore {
   list: ListEntry[]
@@ -104,13 +105,17 @@ export const useLibrary = create<LibraryStore>()(
 
       isWatched: (seriesId, season, episode) => !!get().watched[`${seriesId}:${season}:${episode}`],
 
-      addNotification: (item) =>
+      addNotification: (item) => {
+        // The same news twice is noise: one notification per kind and headline.
+        const key = notificationKey(item)
+        if (get().notifications.some((existing) => notificationKey(existing) === key)) return
         set({
           notifications: [
             { ...item, id: Math.random().toString(36).slice(2), createdAt: Date.now(), read: false },
             ...get().notifications,
           ].slice(0, 40),
-        }),
+        })
+      },
 
       markAllRead: () => set({ notifications: get().notifications.map((n) => ({ ...n, read: true })) }),
 
@@ -129,7 +134,18 @@ export const useLibrary = create<LibraryStore>()(
         }
       },
     }),
-    { name: 'vntera:library', version: 1 },
+    {
+      name: 'vntera:library',
+      version: 2,
+      // v1 collected duplicates for the same title under different stream ids.
+      migrate: (persisted) => {
+        const state = persisted as Partial<LibraryStore> | undefined
+        return {
+          ...state,
+          notifications: dedupeNotifications(state?.notifications ?? []),
+        } as unknown as LibraryStore
+      },
+    },
   ),
 )
 
