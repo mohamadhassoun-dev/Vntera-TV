@@ -761,3 +761,45 @@ html[data-form-factor='tv'] .app-menu-toggle,
 html[data-form-factor='tv'] .app-profile-icon {
   display: none;
 }
+
+/* ------------------------------------------------------------------
+   Ten-foot poster rails.
+   On a television the remote is the pointer, so the row itself becomes the
+   affordance: the card under the remote grows out of the line and the rest of
+   that row softens behind it. Scoped to the TV surface and to wide screens, so
+   a phone keeps exactly the cards it has today.
+   ------------------------------------------------------------------ */
+@media (min-width: 1024px) {
+  /* Room for the growth: the rail clips on both axes (a scroll container
+     cannot have one visible axis), so the extra height is padding, and the
+     margins take it back out of the page rhythm. */
+  html[data-form-factor='tv'] .rail {
+    padding-top: 1.9rem;
+    padding-bottom: 1.7rem;
+    margin-top: -1.9rem;
+    margin-bottom: -1.2rem;
+  }
+  html[data-form-factor='tv'] .rail > .poster-card {
+    transition:
+      transform 0.26s cubic-bezier(0.22, 0.7, 0.3, 1),
+      filter 0.26s ease,
+      box-shadow 0.26s ease,
+      border-color 0.26s ease;
+  }
+  /* The focused card: bigger, framed in crimson, lifted off the row. */
+  html[data-form-factor='tv'] .rail > .poster-card.is-focused,
+  html[data-form-factor='tv'] .rail > .poster-card:focus-visible {
+    position: relative;
+    z-index: 5;
+    transform: scale(1.15);
+    border-color: rgba(229, 9, 20, 0.92);
+    box-shadow:
+      0 0 0 2px rgba(229, 9, 20, 0.45),
+      0 24px 44px -22px rgba(0, 0, 0, 0.95);
+  }
+  /* Everything else in that row steps back, just out of focus. */
+  html[data-form-factor='tv'] .rail:focus-within > .poster-card:not(.is-focused):not(:focus-visible),
+  html[data-form-factor='tv'] .rail:has(> .poster-card.is-focused) > .poster-card:not(.is-focused):not(:focus-visible) {
+    filter: blur(1px);
+  }
+}
