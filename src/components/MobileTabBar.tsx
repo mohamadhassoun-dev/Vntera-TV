@@ -66,13 +66,16 @@ export function MobileTabBar() {
             >
               {({ isActive }) => (
                 <>
-                  {/* The badge carries the active icon, so its slot stays empty. */}
+                  {/* The badge carries the active icon. The slot keeps its height but
+                      drops the icon outright: a fade left the tab showing two homes
+                      while the badge was already sitting above it. */}
                   <span
-                    className={`flex h-[22px] w-[22px] items-center justify-center transition-all duration-300 ${
-                      isActive ? 'scale-75 opacity-0' : 'opacity-100 group-hover:text-ink-soft group-active:scale-90'
+                    aria-hidden
+                    className={`flex h-[22px] w-[22px] items-center justify-center ${
+                      isActive ? '' : 'transition-transform duration-150 group-hover:text-ink-soft group-active:scale-90'
                     }`}
                   >
-                    <Icon name={item.icon} size={21} />
+                    {isActive ? null : <Icon name={item.icon} size={21} />}
                   </span>
                   <span
                     className={`text-[0.625rem] leading-none tracking-[0.01em] transition-all duration-300 ${
