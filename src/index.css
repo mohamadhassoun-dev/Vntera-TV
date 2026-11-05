@@ -103,9 +103,12 @@
 
   /* Spatial navigation focus ring: a crimson frame, never the white box. It is
      an outline rather than a shadow so a card's own shadow utility cannot
-     swallow it. */
+     swallow it, and it rests as *transparent crimson* rather than `none` so
+     nothing can ever interpolate the default white outline into view when
+     focus arrives. */
   [data-nav='true'] {
-    outline: none;
+    outline: 2px solid rgba(229, 9, 20, 0);
+    outline-offset: 1px;
   }
 
   html[data-form-factor='tv'] [data-nav='true']:focus-visible,
@@ -170,6 +173,19 @@
 }
 
 @layer components {
+  /* A television is driven by arrows, not by tapping a menu button: at 10 feet
+     the nav row is always on screen and the hamburger is not offered at all. */
+  html[data-form-factor='tv'] .app-nav {
+    display: flex;
+    gap: 0.85rem;
+  }
+  html[data-form-factor='tv'] .app-nav a {
+    font-size: 0.8rem;
+  }
+  html[data-form-factor='tv'] .app-menu-toggle {
+    display: none;
+  }
+
   .shell-x {
     padding-inline: 1rem;
   }
@@ -406,8 +422,12 @@
     margin-right: -0.35rem;
   }
 
+  /* A card fills whatever box it is put in. Inside a rail it is given a width
+     by the rule below instead: a fixed width here made grid cards overflow
+     their columns and pushed whole pages sideways. */
   .poster-card {
-    width: 8.6rem;
+    width: 100%;
+    min-width: 0;
     border-radius: 4px;
     overflow: hidden;
     background: #181818;
@@ -419,17 +439,21 @@
     cursor: pointer;
     text-align: left;
   }
+  /* Rails are the only place a poster gets its own width. */
+  .rail > .poster-card {
+    width: 8.6rem;
+  }
   @media (min-width: 768px) {
-    .poster-card {
+    .rail > .poster-card {
       width: 10.5rem;
     }
   }
   @media (min-width: 1200px) {
-    .poster-card {
+    .rail > .poster-card {
       width: 11.6rem;
     }
   }
-  html[data-form-factor='tv'] .poster-card {
+  html[data-form-factor='tv'] .rail > .poster-card {
     width: 12rem;
   }
   /* Only a real pointer hovers, and only the TV surface paints a focus frame: on

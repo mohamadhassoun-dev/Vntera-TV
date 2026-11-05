@@ -76,7 +76,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
             <Link to="/" className="shrink-0" data-nav="true" aria-label="Vntera home">
               <Logo />
             </Link>
-            <nav className="hidden items-center gap-5 xl:flex">
+            <nav className="app-nav hidden items-center gap-5 xl:flex">
               {NAV.map((item) => (
                 <NavLink
                   key={item.to}
@@ -125,7 +125,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
               ) : null}
             </button>
             <button
-              className="icon-btn xl:hidden"
+              className="app-menu-toggle icon-btn xl:hidden"
               onClick={() => setMenuOpen(true)}
               data-nav="true"
               aria-label="Browse menu"

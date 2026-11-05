@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Icon } from '../components/Icons'
 import { PANEL_ORIGIN } from '../lib/config'
+import { focusFirstNav, isTVEnvironment } from '../lib/platform'
 import { useAuth } from '../store/auth'
 
 export default function LoginPage() {
@@ -15,10 +16,20 @@ export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const onTV = useMemo(() => isTVEnvironment(), [])
 
   useEffect(() => {
     if (status === 'authed') navigate('/', { replace: true })
   }, [status, navigate])
+
+  // A remote that lands on a page with nothing focused does nothing when the
+  // first arrow is pressed. Put the ring on Account so the first key press
+  // either types or moves on, with the field visibly selected.
+  useEffect(() => {
+    if (!onTV) return
+    const t = window.setTimeout(() => focusFirstNav(), 200)
+    return () => window.clearTimeout(t)
+  }, [onTV])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -49,7 +60,7 @@ export default function LoginPage() {
           busy, and floating fields read as broken markup. It is also a two-pane
           layout from `md` up, so the whole form fits a 540px-tall TV viewport
           instead of pushing the button below the screen. */}
-      <main className="relative z-10 flex flex-1 items-center justify-center px-4 py-5 md:px-8 md:py-6">
+      <main className="relative z-10 flex flex-1 items-center justify-center px-4 py-4 md:px-8 md:py-4">
         <div className="panel w-full max-w-3xl p-5 sm:p-6 md:p-7 lg:px-10 lg:py-8">
           <div className="flex flex-col gap-6 md:flex-row md:items-center md:gap-8 lg:gap-12">
             <div className="shrink-0 md:w-[17rem] lg:w-[21rem]">
@@ -169,6 +180,17 @@ export default function LoginPage() {
                   </>
                 )}
               </button>
+
+              {onTV ? (
+                <div className="flex items-center gap-2 rounded-[4px] border border-stroke/70 bg-black/35 px-2.5 py-1.5">
+                  <kbd className="shrink-0 rounded-[3px] border border-white/25 bg-white/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                    OK
+                  </kbd>
+                  <span className="text-[11px] leading-tight text-ink-soft">
+                    Press OK on the remote to type. Arrows move between the fields.
+                  </span>
+                </div>
+              ) : null}
 
               <span className="flex items-center gap-1.5 pt-0.5 text-[11px] text-ink-soft md:hidden">
                 <Icon name="tv" size={14} className="shrink-0 text-crimson" /> One sign in keeps all
