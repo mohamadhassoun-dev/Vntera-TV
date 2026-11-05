@@ -27,7 +27,7 @@ const KINDS: Array<{ key: SearchFilters['kind']; label: string }> = [
 export default function SearchPage() {
   const snapshot = useCatalog((s) => s.snapshot)
   const navigate = useNavigate()
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const [picker, setPicker] = useState<{ name: string; channels: Title[] } | null>(null)
   const [query, setQuery] = useState(() => params.get('q') ?? '')
   const debounced = useDebounced(query, 300)
@@ -37,6 +37,17 @@ export default function SearchPage() {
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
+
+  // Mirror the term into the URL. Opening a title unmounts this page, so on the
+  // way back the query is rebuilt from here instead of starting blank.
+  const urlQuery = params.get('q') ?? ''
+  useEffect(() => {
+    if (urlQuery === query) return
+    const next = new URLSearchParams(params)
+    if (query) next.set('q', query)
+    else next.delete('q')
+    setParams(next, { replace: true })
+  }, [query, urlQuery, params, setParams])
 
   const results = useMemo(() => searchContent(snapshot, debounced, filters), [snapshot, debounced, filters])
   const trending = useMemo(() => trendingSearches(snapshot, 8), [snapshot])
