@@ -18,8 +18,36 @@ ini_set('zlib.output_compression', '0');
 while (ob_get_level() > 0) {
     ob_end_clean();
 }
+cors();
+
+// Answer the preflight here: forwarding it to the panel would 401.
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
 
 const DEFAULT_PANEL = 'http://ontvflix.cc:8080';
+
+/**
+ * The Android/iOS shell runs the bundle on a local origin (http://localhost), so
+ * its panel calls are cross-origin. No credentials or cookies are involved, so a
+ * reflecting allow-origin is enough to let the WebView read the response.
+ */
+function cors(): void
+{
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    header('Access-Control-Allow-Origin: ' . ($origin !== '' ? $origin : '*'));
+    header('Vary: Origin', false);
+    header('Access-Control-Allow-Methods: GET, HEAD, POST, OPTIONS');
+    header(
+        'Access-Control-Allow-Headers: '
+        . ($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS'] ?? 'Accept, Content-Type, Range, Origin')
+    );
+    header(
+        'Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Last-Modified'
+    );
+    header('Access-Control-Max-Age: 600');
+}
 
 function respond_json(int $status, array $body): void
 {
