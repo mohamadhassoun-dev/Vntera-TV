@@ -101,7 +101,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
             {/* Phones keep Profile in the bottom bar, so the header copy only
                 covers tablets, where that bar is gone. */}
             <button
-              className="icon-btn hidden md:flex xl:hidden"
+              className="app-profile-icon icon-btn hidden md:flex xl:hidden"
               onClick={() => navigate('/profile')}
               data-nav="true"
               aria-label="Profile"
