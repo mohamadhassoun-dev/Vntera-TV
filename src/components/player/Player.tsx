@@ -47,6 +47,15 @@ interface TrackOption {
 
 const STREAM_STALL_MESSAGE =
   'This stream is taking too long to respond. Retry, or pick a lower quality in Settings.'
+const TUNE_ERROR_MESSAGE =
+  'This channel could not be tuned. The provider may be offline or the connection limit was reached.'
+const DROP_ERROR_MESSAGE = 'This stream dropped. Check your connection and retry.'
+/**
+ * Warnings that are only true while nothing is playing. Real playback clears them,
+ * so a channel that recovered never keeps a blocking card over a live picture.
+ */
+const TRANSIENT_ERRORS = new Set<string>([STREAM_STALL_MESSAGE, TUNE_ERROR_MESSAGE, DROP_ERROR_MESSAGE])
+const clearTransientError = (current: string | null) => (current && TRANSIENT_ERRORS.has(current) ? null : current)
 /** How long a stalled stream waits before each rescue step, on a slow connection. */
 const DOWNGRADE_AFTER_MS = 12_000
 const RECOVER_AFTER_MS = 25_000
@@ -234,8 +243,23 @@ export function Player({
         tsRef.current = tsPlayer
         tsPlayer.attachMediaElement(video)
         tsPlayer.load()
-        tsPlayer.on(mpegts.Events.ERROR, () => {
-          setError('This channel could not be tuned. The provider may be offline or the connection limit was reached.')
+        // mpegts.js reports errors it can recover from, and it keeps decoding while
+        // it retries — so a running picture must not be hidden behind a failure card.
+        let tsRecoveries = 0
+        tsPlayer.on(mpegts.Events.ERROR, (type?: string) => {
+          if (cancelled || !tsPlayer || tsRef.current !== tsPlayer) return
+          // Still playing: the clock is the arbiter, and the stall watchdog below
+          // is what speaks up if the picture really stops.
+          if (!video.paused && video.readyState >= 2) return
+          if (type !== mpegts.ErrorTypes.MEDIA_ERROR && tsRecoveries < 2) {
+            tsRecoveries += 1
+            try {
+              if ((tsPlayer as { recover?: () => boolean }).recover?.()) return
+            } catch {
+              /* recover is best effort; fall through to the card */
+            }
+          }
+          setError(TUNE_ERROR_MESSAGE)
           setBuffering(false)
         })
         void video.play().catch(() => undefined)
@@ -399,8 +423,8 @@ export function Player({
     const onPlaying = () => {
       hasPlayed.current = true
       setBuffering(false)
-      // The stream recovered: drop a stall warning that is no longer true.
-      setError((current) => (current === STREAM_STALL_MESSAGE ? null : current))
+      // The stream recovered: drop any warning that is no longer true.
+      setError(clearTransientError)
     }
     const onError = () => {
       // Ignore the empty-src blip while a source is being torn down.
@@ -414,7 +438,7 @@ export function Player({
         return
       }
       setBuffering(false)
-      setError('This stream dropped. Check your connection and retry.')
+      setError(DROP_ERROR_MESSAGE)
     }
     const onEnded = () => {
       if (isLive) {
@@ -485,7 +509,7 @@ export function Player({
       // Paused on purpose or healthy playback: no stall warning.
       if (video.paused || video.readyState >= 3 || progressed) {
         lastProgressAt = Date.now()
-        setError((current) => (current === STREAM_STALL_MESSAGE ? null : current))
+        setError(clearTransientError)
         return
       }
       if (document.visibilityState !== 'visible') return
