@@ -41,3 +41,6 @@ cinematic_obsidian/
 image.png/
 *.png.tmp
 cloud_dvr_snapshot_vault_*/
+
+# scratch verification output
+.tmp-*/
