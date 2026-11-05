@@ -11,7 +11,7 @@
  * JAVA_HOME yourself or let the script pick up .tools/jdk-21* if present.
  */
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -57,6 +57,12 @@ const env = { VITE_API_BASE: apiBase, JAVA_HOME: javaHome() }
 
 console.log(`\n▸ web bundle → ${apiBase}`)
 runNode(join(root, 'node_modules', 'vite', 'bin', 'vite.js'), ['build'], { env })
+
+// The site publishes the installers from public/downloads; the app must not carry
+// them, or every release ships a copy of itself inside its own bundle.
+for (const dir of [join(root, 'dist', 'downloads'), join(root, 'android', 'app', 'src', 'main', 'assets', 'public', 'downloads')]) {
+  rmSync(dir, { recursive: true, force: true })
+}
 
 console.log('\n▸ syncing into the Android project')
 runNode(join(root, 'node_modules', '@capacitor', 'cli', 'bin', 'capacitor'), ['sync', 'android'])
