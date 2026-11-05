@@ -94,10 +94,14 @@
     text-wrap: balance;
   }
 
-  /* No element on any surface paints the browser's own focus ring: on a TV it
-     is a white box, and a tap is not a keyboard focus either way. */
-  :focus,
-  :focus-visible {
+  /* One policy for the whole site.
+
+     A pointer state — a tap, a press, a click — must never leave an edge
+     behind, and the browser's own ring is white, so it is switched off for
+     exactly those states. Keyboard users still get a ring, and it is crimson
+     rather than the UA's white box. */
+  :focus:not(:focus-visible),
+  :active {
     outline: none;
   }
 
@@ -109,6 +113,20 @@
   [data-nav='true'] {
     outline: 2px solid rgba(229, 9, 20, 0);
     outline-offset: 1px;
+  }
+
+  /* Keyboard focus stays visible, and it is crimson. Declared after the
+     resting transparent outline so it wins on nav targets too; fields are
+     skipped because they frame themselves when they take the caret. */
+  html :focus-visible {
+    outline: 2px solid rgba(229, 9, 20, 0.92);
+    outline-offset: 2px;
+  }
+
+  html input:focus-visible,
+  html select:focus-visible,
+  html textarea:focus-visible {
+    outline: none;
   }
 
   html[data-form-factor='tv'] [data-nav='true']:focus-visible,
@@ -130,26 +148,17 @@
     transform: none;
   }
 
-  /* Touch and mouse surfaces get no ring at all — taps must never leave a box
-     behind, on any element Chromium decides to focus. */
-  html[data-input='pointer'] [data-nav='true']:focus,
-  html[data-input='pointer'] [data-nav='true']:focus-visible,
+  /* The `.is-focused` ring belongs to the spatial (TV) surface. If a pointer
+     device somehow carries the class, it must not paint anything — a click is
+     not a keyboard focus and must leave no edge behind. */
   html[data-input='pointer'] [data-nav='true'].is-focused {
     outline: none;
     transform: none;
     box-shadow: none;
   }
 
-  /* A press is not a focus: no surface may paint anything around a tapped
-     element, whatever utility classes it carries. */
+  /* A press is never a ring, whatever element Chromium decides to focus. */
   [data-nav='true']:active {
-    outline: none;
-  }
-
-  /* Nothing on a touch or mouse surface may draw a focus outline: the browser's
-     default ring is a white box, and a tap is not a keyboard focus. */
-  html[data-input='pointer'] :focus,
-  html[data-input='pointer'] :focus-visible {
     outline: none;
   }
 }
