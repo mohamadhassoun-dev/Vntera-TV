@@ -19,7 +19,8 @@
     "desktop:build": "node scripts/build-desktop.mjs",
     "tv": "node scripts/build-apk.mjs --target tv",
     "apk:all": "node scripts/build-apk.mjs --target both",
-    "artifacts": "node scripts/publish-artifacts.mjs"
+    "artifacts": "node scripts/publish-artifacts.mjs",
+    "deploy": "node scripts/deploy-site.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",

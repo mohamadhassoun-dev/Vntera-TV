@@ -4,6 +4,8 @@ interface PlatformArtifact {
   file: string
   /** Set when the file is published elsewhere (the Windows release asset). */
   url?: string
+  /** True when the site itself serves the file from /downloads. */
+  selfHosted?: boolean
   bytes: number
   available: boolean
 }
@@ -72,9 +74,10 @@ export const RELEASES: ReleaseArtifact[] = [
     name: `Vntera-Setup-${VERSION}.exe`,
     label: 'Windows',
     requirement: 'Windows 10 / 11 · 64-bit',
-    // Too large to serve from the site's own git deploy, so the release asset is
-    // the canonical download; the local copy is the fallback.
-    file: artifacts.desktop.url || artifacts.desktop.file,
+    // The site serves the installer from /downloads when it is staged there;
+    // otherwise it falls back to the release asset, which is the only copy a
+    // plain git deploy can carry.
+    file: artifacts.desktop.selfHosted ? artifacts.desktop.file : artifacts.desktop.url || artifacts.desktop.file,
     bytes: artifacts.desktop.bytes,
     sizeLabel: size(artifacts.desktop.bytes),
     qr: '/media/qr-desktop.png',

@@ -36,13 +36,21 @@ const installer = `Vntera-Setup-${version}.exe`
 const localInstaller = join(root, 'public', 'downloads', installer)
 const builtInstaller = join(root, 'release', installer)
 const bytes = sizeOf(localInstaller) || sizeOf(builtInstaller)
+// The site serves the installer itself whenever a copy is staged in
+// public/downloads — hosting it here is what keeps the desktop download alive
+// when the release channel is unavailable. The GitHub asset stays as the
+// fallback for a build that has not staged the file.
+const staged = sizeOf(localInstaller) > 0
 artifacts.desktop = {
   file: `/downloads/${installer}`,
   url: `https://github.com/${repo}/releases/download/v${version}/${installer}`,
+  selfHosted: staged,
   bytes,
   available: bytes > 0,
 }
-console.log(`${bytes ? '✓' : '·'} desktop  ${installer} ${bytes || 'missing'} → ${artifacts.desktop.url}`)
+console.log(
+  `${bytes ? '✓' : '·'} desktop  ${installer} ${bytes || 'missing'} → ${staged ? artifacts.desktop.file + ' (self-hosted)' : artifacts.desktop.url}`,
+)
 
 writeFileSync(join(root, 'src', 'lib', 'artifacts.json'), JSON.stringify(artifacts, null, 2) + '\n')
 console.log('✓ src/lib/artifacts.json')
