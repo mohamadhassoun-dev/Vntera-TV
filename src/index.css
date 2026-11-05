@@ -117,6 +117,16 @@
     z-index: 20;
   }
 
+  /* Text fields are D-pad targets on a TV too, but scaling a field that a
+     remote just landed on would shift the text under the caret. Frame it. */
+  html[data-form-factor='tv'] input[data-nav='true']:focus-visible,
+  html[data-form-factor='tv'] input[data-nav='true'].is-focused {
+    outline: 2px solid rgba(229, 9, 20, 0.92);
+    outline-offset: 1px;
+    box-shadow: 0 0 0 3px rgba(229, 9, 20, 0.16);
+    transform: none;
+  }
+
   /* Touch and mouse surfaces get no ring at all — taps must never leave a box
      behind, on any element Chromium decides to focus. */
   html[data-input='pointer'] [data-nav='true']:focus,
