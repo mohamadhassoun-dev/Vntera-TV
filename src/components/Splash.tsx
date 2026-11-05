@@ -1,67 +1,63 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-/** Launch loader: the brand sting fills the whole screen while the catalogue boots. */
-const POSTER = '/media/app-intro-poster.jpg'
+/** How long the smiley loader may stay in front of the app while the catalogue
+ *  boots. Home usually appears long before this; the cap keeps a slow network
+ *  from hiding the page forever. */
+export const SPLASH_MAX_MS = 20_000
 
-const TV_SRC = '/media/app-intro-tv.mp4'
-const TABLET_SRC = '/media/app-intro-hd.mp4'
-const PHONE_SRC = '/media/app-intro.mp4'
-
-/** Portrait clip cut for phones, an upscaled copy for tablets, a 16:9 crop for TVs. */
-function introSource(w: number, h: number): string {
-  if (!w || !h) return PHONE_SRC
-  if (w / h >= 1.2) return TV_SRC
-  return w >= 768 ? TABLET_SRC : PHONE_SRC
-}
-
-export function Splash() {
-  // The right film for the current screen shape, kept in sync so rotating a
-  // phone or resizing the window never leaves a letterboxed strip behind.
-  const [src, setSrc] = useState(() => introSource(window.innerWidth, window.innerHeight))
-  const videoRef = useRef<HTMLVideoElement>(null)
-
+/**
+ * Launch loader: a glowing smiley breathing in the dark while the catalogue pulls
+ * its first page, with the wordmark and a progress line underneath.
+ *
+ * `progress` is the catalogue's own 0-100 figure; without it the line runs on its
+ * own animation, which is what a lazy route load needs.
+ */
+export function Splash({ progress }: { progress?: number }) {
+  // Reveal the mark once, not on every progress tick.
+  const [shown, setShown] = useState(false)
   useEffect(() => {
-    const sync = () => {
-      const next = introSource(window.innerWidth, window.innerHeight)
-      setSrc((current) => (current === next ? current : next))
-    }
-    window.addEventListener('resize', sync)
-    window.addEventListener('orientationchange', sync)
-    return () => {
-      window.removeEventListener('resize', sync)
-      window.removeEventListener('orientationchange', sync)
-    }
+    const t = window.setTimeout(() => setShown(true), 60)
+    return () => window.clearTimeout(t)
   }, [])
 
-  // Swapping the film on rotation recreates the element; start it again at once.
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    void video.play().catch(() => {
-      video.muted = true
-      void video.play().catch(() => undefined)
-    })
-  }, [src])
+  const known = typeof progress === 'number' && progress > 0
+  const fill = known ? `${Math.max(4, Math.min(100, progress))}%` : undefined
 
   return (
     <div className="fixed inset-0 z-[200] overflow-hidden bg-black text-white">
-      <video
-        ref={videoRef}
-        key={src}
-        src={src}
-        poster={POSTER}
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
-        disablePictureInPicture
-        tabIndex={-1}
+      {/* Vignette: the smiley sits in a pool of light, the edges fall to black. */}
+      <div
         aria-hidden="true"
-        className="absolute inset-0 h-full w-full object-cover"
+        className="absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(circle at 50% 38%, rgba(255,255,255,0.11) 0%, rgba(255,255,255,0.035) 34%, rgba(0,0,0,0) 68%)',
+        }}
       />
 
-      {/* Keeps the footer legible over the brightest frames of the sting. */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center pb-24">
+        <svg
+          viewBox="0 0 200 200"
+          role="img"
+          aria-label="Vntera is loading"
+          className={`splash-smiley h-[46svh] max-h-[22rem] w-auto ${shown ? 'splash-smiley--in' : 'opacity-0'}`}
+        >
+          <g fill="#fff">
+            <circle cx="71" cy="72" r="21" />
+            <circle cx="129" cy="72" r="21" />
+            {/* A thick smile that stops short of the face edge, ends rounded. */}
+            <path
+              d="M42 116a58 58 0 0 0 116 0"
+              fill="none"
+              stroke="#fff"
+              strokeWidth="22"
+              strokeLinecap="round"
+            />
+          </g>
+        </svg>
+      </div>
+
+      {/* Keeps the footer legible over the glow. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black via-black/70 to-transparent" />
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-4 px-6 pb-[max(1.75rem,env(safe-area-inset-bottom))] md:pb-12">
@@ -80,7 +76,10 @@ export function Splash() {
         </picture>
 
         <div className="h-[2px] w-[min(72vw,17rem)] overflow-hidden rounded-full bg-white/15 md:w-[22rem]">
-          <div className="splash-bar h-full bg-crimson" />
+          <div
+            className={`splash-bar h-full bg-crimson ${known ? '' : 'splash-bar--run'}`}
+            style={fill ? { width: fill, transition: 'width 400ms ease-out' } : undefined}
+          />
         </div>
       </div>
     </div>

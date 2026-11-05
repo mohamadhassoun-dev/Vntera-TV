@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { PageSkeleton } from './components/Skeleton'
-import { Splash } from './components/Splash'
+import { SPLASH_MAX_MS, Splash } from './components/Splash'
 import { applyFormFactor, detectFormFactor, installSpatialNavigation } from './lib/platform'
 import { REFRESH_INTERVAL_MS } from './lib/config'
 import { useAuth } from './store/auth'
@@ -39,11 +39,20 @@ export default function App() {
 
   const [formFactor, setFormFactor] = useState(() => detectFormFactor())
   const [booted, setBooted] = useState(false)
+  /** The smiley loader has had its turn; a slow catalogue shows the page itself. */
+  const [splashSpent, setSplashSpent] = useState(false)
+  const catalogReady = useCatalog((s) => s.snapshot !== null)
+  const catalogProgress = useCatalog((s) => s.progress)
 
   useEffect(() => {
     void bootstrap()
     const t = window.setTimeout(() => setBooted(true), 1600)
-    return () => window.clearTimeout(t)
+    // The loader covers the first page pull, never longer than its twenty seconds.
+    const cap = window.setTimeout(() => setSplashSpent(true), SPLASH_MAX_MS)
+    return () => {
+      window.clearTimeout(t)
+      window.clearTimeout(cap)
+    }
   }, [bootstrap])
 
   useEffect(() => {
@@ -79,7 +88,10 @@ export default function App() {
     return uninstall
   }, [formFactor, navigate])
 
-  if (status === 'booting' || !booted) return <Splash />
+  // Until the first catalogue page is in, the smiley is the only thing on screen,
+  // so nobody watches an empty shell with a skeleton in it.
+  const catalogPending = (status === 'authed' || status === 'reauth') && !catalogReady && !splashSpent
+  if (status === 'booting' || !booted || catalogPending) return <Splash progress={catalogProgress} />
 
   // The app download page is public: it is how a phone gets the app in the first place.
   if (location.pathname === '/download') {

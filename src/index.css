@@ -546,6 +546,36 @@
   animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Launch loader: the glowing smiley arrives, then breathes while the catalogue
+   pulls its first page. */
+@keyframes splash-smiley-breath {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.94;
+  }
+  50% {
+    transform: scale(1.035);
+    opacity: 1;
+  }
+}
+
+.splash-smiley {
+  filter: drop-shadow(0 0 26px rgba(255, 255, 255, 0.55)) drop-shadow(0 0 70px rgba(255, 255, 255, 0.3));
+  transition: opacity 500ms ease-out;
+  animation: splash-smiley-breath 3.6s ease-in-out infinite;
+}
+
+.splash-smiley--in {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-smiley {
+    animation: none;
+  }
+}
+
 @keyframes splash-mark {
   0% {
     opacity: 0;
@@ -575,7 +605,7 @@
     width: 100%;
   }
 }
-.splash-bar {
+.splash-bar--run {
   animation: bar-fill 2.1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
