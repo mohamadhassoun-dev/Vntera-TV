@@ -49,7 +49,6 @@
   },
   "main": "desktop/main.mjs",
   "author": {
-    "name": "Vntera Media Networks",
-    "email": "support@vntera.com"
+    "name": "Vntera Media Networks"
   }
 }

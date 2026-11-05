@@ -202,8 +202,7 @@ key and no `.env`: `android/keystore.properties`, `android/keystore/`, `.tools/`
 production uploads are all in `.gitignore`. The panel hostname that appears in the
 config and the README is public information — the proxy refuses any host that is not
 listed in `ALLOWED_HOSTS`. A user's own provider password is typed at sign-in, never
-built into a bundle, and is encrypted at rest (see above). Report a problem to
-security@vntera.com.
+built into a bundle, and is encrypted at rest (see above).
 
 ## Notes
 
