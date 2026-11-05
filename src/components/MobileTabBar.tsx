@@ -45,7 +45,7 @@ export function MobileTabBar() {
           key={active.to}
           aria-hidden
           data-tabbar-badge
-          className="mobile-tabbar__badge flex h-14 w-14 items-center justify-center rounded-full bg-[linear-gradient(160deg,#ff2a35,#b00710)] text-white ring-1 ring-white/20 shadow-[0_12px_26px_-10px_rgba(229,9,20,0.9)]"
+          className="mobile-tabbar__badge pointer-events-none flex h-14 w-14 items-center justify-center rounded-full bg-[linear-gradient(160deg,#ff2a35,#b00710)] text-white ring-1 ring-white/20 shadow-[0_12px_26px_-10px_rgba(229,9,20,0.9)]"
         >
           <Icon name={active.icon} size={24} />
         </span>
