@@ -22,7 +22,9 @@ export function isArabicChannel(channel: Title): boolean {
 /** Tile caption: no "AR" tag, underscores or quality suffixes. */
 export function arabicChannelLabel(name: string): string {
   const trimmed = name
-    .replace(/^\s*AR\s*[:_|\-–]?\s*/i, '')
+    // Panel section tags arrive as "|AR.MBC|", "AR: " and "AR_" prefixes.
+    .replace(/^\s*(?:\|[^|]*\|\s*)+/, '')
+    .replace(/^\s*AR\s*[:_|.\-–]?\s*/i, '')
     .replace(/_/g, ' ')
     .replace(/\b(4k|8k|uhd|fhd|hdr|hd|sd|hq|live)\b/gi, ' ')
     .replace(/\s+/g, ' ')

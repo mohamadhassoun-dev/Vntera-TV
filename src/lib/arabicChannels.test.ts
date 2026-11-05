@@ -55,6 +55,7 @@ describe('arabic channel wall', () => {
 
   it('cleans the caption of section tags, underscores and quality suffixes', () => {
     expect(arabicChannelLabel('AR: MBC_1 4K')).toBe('MBC 1')
+    expect(arabicChannelLabel('|AR.MBC| MBC TOW')).toBe('MBC TOW')
     expect(arabicChannelLabel('ROTANA CINEMA HD')).toBe('ROTANA CINEMA')
   })
 })
