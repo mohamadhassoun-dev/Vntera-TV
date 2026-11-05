@@ -577,6 +577,52 @@
   }
 }
 
+/* ------------------------------------------------------------------
+   Phone tab bar: floating pill with a notch that slides under the tab
+   in use. --notch-x is a registered property so the mask can tween.
+   ------------------------------------------------------------------ */
+@property --notch-x {
+  syntax: '<length-percentage>';
+  inherits: true;
+  initial-value: 10%;
+}
+
+.mobile-tabbar {
+  bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  transition: --notch-x 0.46s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.mobile-tabbar__shadow {
+  filter: drop-shadow(0 16px 30px rgba(0, 0, 0, 0.62));
+}
+
+.mobile-tabbar__surface {
+  -webkit-mask-image: radial-gradient(circle 34px at var(--notch-x) 0, transparent 32.5px, #000 34px);
+  mask-image: radial-gradient(circle 34px at var(--notch-x) 0, transparent 32.5px, #000 34px);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.mobile-tabbar__badge {
+  position: absolute;
+  top: -1.75rem;
+  left: var(--notch-x);
+  margin-left: -1.75rem;
+  animation: tabbar-badge-pop 0.44s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes tabbar-badge-pop {
+  0% {
+    transform: scale(0.7);
+  }
+  62% {
+    transform: scale(1.07);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -589,5 +635,8 @@
   /* Nothing to animate: show the indicator already filled. */
   .hero-dot-fill {
     transform: none !important;
+  }
+  .mobile-tabbar {
+    transition: none !important;
   }
 }

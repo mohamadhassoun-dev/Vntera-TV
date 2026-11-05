@@ -8,6 +8,7 @@ import { useOnline, useScrolledPast } from '../lib/hooks'
 import { installRoutePrefetch } from '../lib/prefetch'
 import { useAutoAlerts } from '../lib/alerts'
 import { Icon, type IconName } from './Icons'
+import { MobileTabBar } from './MobileTabBar'
 import type { FormFactor } from '../lib/platform'
 
 const NAV: Array<{ to: string; label: string; icon: IconName }> = [
@@ -16,14 +17,6 @@ const NAV: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/series', label: 'TV Shows', icon: 'film' },
   { to: '/movies', label: 'Movies', icon: 'grid' },
   { to: '/new', label: 'New & Popular', icon: 'sparkles' },
-  { to: '/my-list', label: 'My List', icon: 'heart' },
-  { to: '/profile', label: 'Profile', icon: 'user' },
-]
-
-const MOBILE_NAV: Array<{ to: string; label: string; icon: IconName }> = [
-  { to: '/', label: 'Home', icon: 'home' },
-  { to: '/live', label: 'Live TV', icon: 'tv' },
-  { to: '/search', label: 'Search', icon: 'search' },
   { to: '/my-list', label: 'My List', icon: 'heart' },
   { to: '/profile', label: 'Profile', icon: 'user' },
 ]
@@ -71,7 +64,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
   }, [menuOpen])
 
   return (
-    <div className="min-h-screen bg-canvas pb-20 md:pb-0">
+    <div className="min-h-screen bg-canvas pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
       <header
         className={`fixed inset-x-0 top-0 z-50 transition-[background-color,backdrop-filter,border-color] duration-300 ${
           scrolled ? 'bg-canvas/90 backdrop-blur-xl hairline' : 'bg-transparent border-b border-transparent'
@@ -225,30 +218,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
         </div>
       </footer>
 
-      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-stroke bg-canvas/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
-        <div className="grid grid-cols-5">
-          {MOBILE_NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              data-nav="true"
-              className={({ isActive }) =>
-                `flex flex-col items-center gap-1 py-2.5 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
-                  isActive ? 'text-white' : 'text-ink-mute'
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <Icon name={item.icon} size={20} className={isActive ? 'text-crimson' : ''} />
-                  {item.label}
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
-      </nav>
+      <MobileTabBar />
 
       <div className="pointer-events-none fixed bottom-24 left-1/2 z-[95] flex w-[min(92vw,28rem)] -translate-x-1/2 flex-col gap-2 md:bottom-8">
         {toasts.map((t) => (
