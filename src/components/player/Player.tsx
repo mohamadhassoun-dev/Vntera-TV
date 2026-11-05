@@ -611,6 +611,32 @@ export function Player({
   /** Whether the cinema surface turns the picture ninety degrees. */
   const rotated = pictureTurned(cinema, turnOverride, portrait)
 
+  /**
+   * A turned picture is laid out from the viewport measured in pixels: a WebView
+   * whose chrome overhangs the page reports a taller `100vh` than it can show, and
+   * sizing the surface from that leaves the picture half off screen.
+   */
+  const [turnedSize, setTurnedSize] = useState<{ w: number; h: number } | null>(null)
+  useEffect(() => {
+    if (!rotated) {
+      setTurnedSize(null)
+      return
+    }
+    const sync = () => {
+      const doc = document.documentElement
+      const w = doc.clientWidth || window.innerWidth
+      const h = doc.clientHeight || window.innerHeight
+      setTurnedSize(w > 0 && h > 0 ? { w, h } : null)
+    }
+    sync()
+    window.addEventListener('resize', sync)
+    window.addEventListener('orientationchange', sync)
+    return () => {
+      window.removeEventListener('resize', sync)
+      window.removeEventListener('orientationchange', sync)
+    }
+  }, [rotated])
+
   const toggleFullscreen = useCallback(async () => {
     const node = containerRef.current
     const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null
@@ -902,12 +928,19 @@ export function Player({
               position: 'fixed',
               left: '50%',
               top: '50%',
-              width: '100vh',
-              height: '100vw',
-              transform: 'translate(-50%, -50%) rotate(90deg)',
+              width: turnedSize ? turnedSize.h : '100vh',
+              height: turnedSize ? turnedSize.w : '100vw',
+              transform: 'translate(-50%, -50%) rotate(90deg) translateZ(0)',
+              // A WebView composites the picture on its own layer; the transform
+              // only reaches it when the surface is promoted too.
+              willChange: 'transform',
+              backfaceVisibility: 'hidden',
               zIndex: 90,
             }
-          : undefined
+          : cinema
+            ? // Cinema fills the window even when the player was mounted in a smaller box.
+              { position: 'fixed', inset: 0, zIndex: 80 }
+            : undefined
       }
       onMouseMove={reveal}
       onTouchStart={reveal}

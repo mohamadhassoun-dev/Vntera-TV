@@ -94,17 +94,25 @@
     text-wrap: balance;
   }
 
-  /* Spatial navigation focus ring: luminous, never shifts layout */
+  /* No element on any surface paints the browser's own focus ring: on a TV it
+     is a white box, and a tap is not a keyboard focus either way. */
+  :focus,
+  :focus-visible {
+    outline: none;
+  }
+
+  /* Spatial navigation focus ring: a crimson frame, never the white box. It is
+     an outline rather than a shadow so a card's own shadow utility cannot
+     swallow it. */
   [data-nav='true'] {
     outline: none;
   }
 
   html[data-form-factor='tv'] [data-nav='true']:focus-visible,
   html[data-form-factor='tv'] [data-nav='true'].is-focused {
-    outline: none;
-    box-shadow:
-      0 0 0 2px #fff,
-      0 0 28px rgba(229, 9, 20, 0.65);
+    outline: 2px solid rgba(229, 9, 20, 0.92);
+    outline-offset: 1px;
+    box-shadow: 0 0 26px rgba(229, 9, 20, 0.45);
     transform: scale(1.04);
     z-index: 20;
   }
@@ -117,6 +125,12 @@
     outline: none;
     transform: none;
     box-shadow: none;
+  }
+
+  /* A press is not a focus: no surface may paint anything around a tapped
+     element, whatever utility classes it carries. */
+  [data-nav='true']:active {
+    outline: none;
   }
 
   /* Nothing on a touch or mouse surface may draw a focus outline: the browser's
@@ -416,7 +430,7 @@
     }
   }
   html[data-form-factor='tv'] .poster-card:focus-visible {
-    border-color: rgba(255, 255, 255, 0.35);
+    border-color: rgba(229, 9, 20, 0.65);
   }
 
   .wide-card {
