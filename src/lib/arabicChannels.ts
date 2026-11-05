@@ -42,7 +42,14 @@ const cache = new WeakMap<readonly Title[], readonly ChannelFamily[]>()
 export function arabicChannelFamilies(channels: readonly Title[]): readonly ChannelFamily[] {
   const cached = cache.get(channels)
   if (cached) return cached
-  const arabic = channels.filter((channel) => channel.kind === 'live' && isArabicChannel(channel))
+  const arabic = channels.filter(
+    (channel) =>
+      channel.kind === 'live' &&
+      isArabicChannel(channel) &&
+      // Panel placeholders like "|AR.MBC| MBC TOW" are not a channel anyone wants
+      // on the wall, and their names survive cleanup as gibberish.
+      !channel.name.includes('|'),
+  )
   const families = groupChannelFamilies(arabic).sort((a, b) => {
     const artwork = Number(Boolean(b.primary.poster)) - Number(Boolean(a.primary.poster))
     if (artwork) return artwork
