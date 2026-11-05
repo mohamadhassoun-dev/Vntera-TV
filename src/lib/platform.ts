@@ -37,6 +37,20 @@ export function isTVEnvironment(): boolean {
   return detectFormFactor() === 'tv'
 }
 
+/** True inside the packaged app shell (Capacitor's WebView), not a normal browser. */
+export function isNativeShell(): boolean {
+  if (typeof window === 'undefined') return false
+  const capacitor = (
+    window as Window & {
+      Capacitor?: { isNativePlatform?: () => boolean; platform?: string; getPlatform?: () => string }
+    }
+  ).Capacitor
+  if (!capacitor) return false
+  if (typeof capacitor.isNativePlatform === 'function') return capacitor.isNativePlatform()
+  const platform = capacitor.platform ?? capacitor.getPlatform?.()
+  return platform === 'android' || platform === 'ios'
+}
+
 /** True when the container can hand playback off to a remote device. */
 export function canCastVideo(video: HTMLVideoElement | null): boolean {
   if (!video) return false
@@ -144,6 +158,8 @@ export function installSpatialNavigation(opts: SpatialOptions): () => void {
   if (typeof document === 'undefined') return () => undefined
 
   const onFocusIn = (e: FocusEvent) => {
+    // Only the 10-foot surface paints a focus ring; a tap on a phone must not.
+    if (document.documentElement.dataset.formFactor !== 'tv') return
     const target = e.target as HTMLElement | null
     if (target?.matches?.(NAV_SELECTOR)) markFocused(target)
   }

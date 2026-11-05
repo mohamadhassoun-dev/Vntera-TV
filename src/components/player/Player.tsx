@@ -6,7 +6,7 @@ import { Icon } from '../Icons'
 import { AudioOnlyAds } from './AudioOnlyAds'
 import { detectNetworkSpeed, slowNetworkCap } from '../../lib/editions'
 import { formatTimecode } from '../../lib/format'
-import { canCastVideo, startCast } from '../../lib/platform'
+import { canCastVideo, isNativeShell, startCast } from '../../lib/platform'
 import { useWakeLock } from '../../lib/hooks'
 import { useSettings } from '../../store/settings'
 
@@ -127,6 +127,9 @@ export function Player({
   const [showControls, setShowControls] = useState(true)
   const [menu, setMenu] = useState<'none' | 'quality' | 'speed' | 'audio' | 'subtitles' | 'more'>('none')
   const [fullscreen, setFullscreen] = useState(false)
+  /** In-app cinema mode: fills the screen and turns the picture landscape on phones. */
+  const [cinema, setCinema] = useState(false)
+  const [portrait, setPortrait] = useState(false)
   const [pipActive, setPipActive] = useState(false)
   const [audioOnly, setAudioOnly] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -546,17 +549,60 @@ export function Player({
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
 
+  // Which way the handset is held, so cinema mode knows whether to turn the picture.
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: portrait)')
+    const sync = () => setPortrait(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+
+  const expanded = cinema || fullscreen
+
   const toggleFullscreen = useCallback(async () => {
     const node = containerRef.current
     const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen()
-      else if (node?.requestFullscreen) await node.requestFullscreen()
-      else video?.webkitEnterFullscreen?.()
-    } catch {
-      video?.webkitEnterFullscreen?.()
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => undefined)
+      return
     }
-  }, [])
+    if (cinema) {
+      setCinema(false)
+      return
+    }
+    // A WebView shell accepts requestFullscreen() and then shows nothing, so the
+    // packaged app always gets the in-app surface instead.
+    if (isNativeShell()) {
+      setCinema(true)
+      reveal()
+      return
+    }
+    if (document.fullscreenEnabled && node?.requestFullscreen) {
+      try {
+        await node.requestFullscreen()
+        if (document.fullscreenElement === node) return
+      } catch {
+        /* fall through to the in-app player surface */
+      }
+    }
+    if (document.fullscreenEnabled) {
+      video?.webkitEnterFullscreen?.()
+      if (document.fullscreenElement) return
+    }
+    setCinema(true)
+    reveal()
+  }, [cinema, reveal])
+
+  // Leaving the player also leaves cinema mode.
+  useEffect(() => {
+    if (!cinema) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCinema(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [cinema])
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current
@@ -750,6 +796,19 @@ export function Player({
       className={`group/player relative h-full w-full overflow-hidden bg-black ${
         showControls || menu !== 'none' ? 'cursor-auto' : 'cursor-none'
       }`}
+      style={
+        cinema && portrait
+          ? {
+              position: 'fixed',
+              left: '50%',
+              top: '50%',
+              width: '100vh',
+              height: '100vw',
+              transform: 'translate(-50%, -50%) rotate(90deg)',
+              zIndex: 90,
+            }
+          : undefined
+      }
       onMouseMove={reveal}
       onTouchStart={reveal}
       data-player="true"
@@ -1128,8 +1187,14 @@ export function Player({
                   <Icon name="pip" size={18} className={pipActive ? 'text-crimson' : ''} />
                 </button>
               ) : null}
-              <button className="icon-btn !border-0 !bg-transparent" onClick={() => void toggleFullscreen()} data-nav="true" aria-label="Fullscreen">
-                <Icon name={fullscreen ? 'minimize' : 'maximize'} size={18} />
+              <button
+                className="icon-btn !border-0 !bg-transparent"
+                onClick={() => void toggleFullscreen()}
+                data-nav="true"
+                aria-label={expanded ? 'Exit fullscreen' : 'Fullscreen'}
+                title={expanded ? 'Exit fullscreen' : 'Fullscreen'}
+              >
+                <Icon name={expanded ? 'minimize' : 'maximize'} size={18} />
               </button>
             </div>
           </div>
