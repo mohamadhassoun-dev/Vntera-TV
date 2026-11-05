@@ -1,12 +1,17 @@
-# Vntera
+# Vntera TV
 
-Cinematic IPTV client for live TV, movies and series. One responsive React + TypeScript
-codebase that runs on TV (10-foot UI, D-pad spatial navigation), desktop, tablet, mobile
-and the web. Ships as an installable PWA and can be wrapped by Electron/Tauri (desktop)
-and Capacitor (iOS/Android) without code changes.
+Cinematic IPTV client for live TV, movies and series. One React + TypeScript codebase
+that runs on the web, Android phones, Android TV (10-foot UI, D-pad spatial navigation)
+and Windows, plus tablets and any desktop browser.
 
-Design language: **Cinematic Obsidian** (`cinematic_obsidian/DESIGN.md`), exported from
-Google Stitch.
+Three shippable builds come out of this repository:
+
+| Build | Command | Output |
+| --- | --- | --- |
+| Website | `npm run build` | `dist/` |
+| Android phone | `npm run apk` | `release/vntera-<version>.apk` |
+| Android TV | `npm run tv` | `release/vntera-tv-<version>.apk` |
+| Windows | `npm run desktop:build` | `release/Vntera-Setup-<version>.exe` |
 
 ## Quick start
 
@@ -44,21 +49,34 @@ Optional build-time variables (Vite, baked into the bundle): `VITE_PANEL_ORIGIN`
 `VITE_API_BASE` (default `/xtream`). `GET /healthz` returns the panel origin the server
 resolved, which is the quickest way to confirm a deploy picked up its variables.
 
-### Android APK
+### Android APK (phone and TV)
 
 The phone app is a Capacitor shell around the same bundle, so the website and the
-APK share one codebase. A bundled WebView has no same-origin proxy, so the APK is
+APKs share one codebase. A bundled WebView has no same-origin proxy, so the APKs are
 compiled with `VITE_API_BASE` pointing at the deployed bridge
 (`http://movies.vntera.com/xtream`); the site build keeps the relative `/xtream`.
 
 ```bash
-npm run apk                      # release APK -> release/vntera-<version>.apk
+npm run apk                      # phone APK  -> release/vntera-<version>.apk
+npm run tv                       # TV APK     -> release/vntera-tv-<version>.apk
+npm run apk:all                  # both
 npm run apk -- --api-base http://other.host/xtream
 ```
 
 What the script does: builds the web bundle with that API base, copies it into
-`android/` (`cap sync`), runs `gradlew assembleRelease`, and drops the signed APK
-in `release/`.
+`android/` (`cap sync`), runs the matching Gradle task, and drops the signed APK in
+`release/`. It prints what the APK reports about itself (package, version, label,
+leanback) so a wrong flavor cannot slip past unnoticed.
+
+Two Gradle flavors share the code:
+
+- `phone` — `com.vntera.iptv`, the touch app.
+- `tv` — `com.vntera.iptv.tv`, label **Vntera TV**, with the leanback launcher intent,
+a 320×180 TV banner, and touchscreen/no-leanback feature flags. The TV bundle is
+built with `VITE_FORCE_FORM=tv` because a television WebView sends the same generic
+"Linux; Android" user agent as a phone, which no runtime detection can tell apart.
+
+The TV flavor installs alongside the phone app rather than replacing it.
 
 Requirements on the build machine:
 
@@ -69,10 +87,44 @@ Requirements on the build machine:
   the generated `android/keystore/vntera-release.jks` (alias `vntera`) is the
   upload key — **back it up**, every future update must be signed with it.
 
-App identity: `com.vntera.iptv`, version `1.0.0` (versionCode 1), min SDK 24,
+App identity: `com.vntera.iptv` (phone) and `com.vntera.iptv.tv` (TV), min SDK 24,
 target SDK 36. The manifest allows cleartext traffic because the panel is HTTP.
 Launcher icons and the splash screen are generated from `public/icon-512.png`
-with `npx capacitor-assets generate --android`.
+with `npx capacitor-assets generate --android`; the TV banner and the Windows
+installer icon come from `npm run icons`.
+
+### Windows desktop app
+
+The desktop shell is Electron. A packaged app has no browser origin and nothing to
+proxy through, so the main process starts the **same origin the website runs** —
+`server/app.js` — on a free loopback port and the window loads that. Sign-in,
+playback and the `/xtream` bridge therefore behave exactly as on the web.
+
+```bash
+npm run desktop          # build the bundle and open the shell
+npm run desktop:smoke    # load it headlessly, print what rendered, quit
+npm run desktop:build    # NSIS installer in release/ (runs the smoke check too)
+```
+
+The shell keeps a single origin (links open in the real browser), remembers window
+bounds, and adds a menu with full screen (F11), zoom, reload and navigation. The
+installer is built with LZMA maximum compression and only the locales the shell can
+use, and it is published as a GitHub release asset: at ~118 MB it exceeds GitHub's
+100 MB per-file limit for a repository.
+
+### Publishing a release
+
+```bash
+npm run icons        # installer icon + TV banner from the shipped artwork
+npm run apk:all      # phone + TV APKs
+npm run desktop:build # Windows installer
+npm run qr           # QR codes for the install section
+npm run artifacts    # writes src/lib/artifacts.json from the files on disk
+npm run build        # website bundle, then deploy dist/
+```
+
+`src/lib/artifacts.json` is committed so the site shows the real version, size and
+download URL of each installer instead of hand-typed values.
 
 ### Static/shared hosting (Hostinger LiteSpeed, PHP only)
 
@@ -130,16 +182,28 @@ src/
 | Target | How |
 | --- | --- |
 | Web / PWA | `npm run build`, serve `dist/` |
-| Android TV / Fire TV | WebView wrapper (Capacitor Android) + leanback launcher intent; D-pad handled by spatial nav |
+| Windows | `npm run desktop:build` — Electron shell with its own loopback origin |
+| Android | `npm run apk` — Capacitor shell, `com.vntera.iptv` |
+| Android TV / Fire TV | `npm run tv` — leanback flavor, `com.vntera.iptv.tv`, D-pad spatial nav |
 | Samsung Tizen | Tizen web app project pointing at `dist/`; register remote keys |
 | LG webOS | webOS web app package pointing at `dist/` |
 | Apple TV / tvOS | AVPlayer-backed WebView host, or reuse the API layer in a native tvOS target |
-| Windows / macOS / Linux | Electron or Tauri window loading `dist/` (native fullscreen + PiP) |
-| iOS / Android | Capacitor shell; native ExoPlayer/AVPlayer bridge can replace the `<video>` element in `components/player/VideoEngine.ts` |
+| macOS / Linux | Electron or Tauri window loading `dist/` (native fullscreen + PiP) |
+| iOS | Capacitor shell; native AVPlayer bridge can replace the `<video>` element in `components/player/VideoEngine.ts` |
 
 `src/lib/platform.ts` detects the container and applies the `tv` form factor (larger
 type, 4rem safe margins, D-pad focus rings, back-key handling). Force it with
 `?form=tv` for QA.
+
+## Security
+
+Nothing secret is committed. The repository contains no panel credentials, no signing
+key and no `.env`: `android/keystore.properties`, `android/keystore/`, `.tools/` and
+production uploads are all in `.gitignore`. The panel hostname that appears in the
+config and the README is public information — the proxy refuses any host that is not
+listed in `ALLOWED_HOSTS`. A user's own provider password is typed at sign-in, never
+built into a bundle, and is encrypted at rest (see above). Report a problem to
+security@vntera.com.
 
 ## Notes
 

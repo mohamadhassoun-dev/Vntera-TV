@@ -1,9 +1,9 @@
 {
   "name": "vntera-iptv",
   "private": true,
-  "version": "1.0.8",
+  "version": "1.1.0",
   "type": "module",
-  "description": "Vntera — cross-platform IPTV streaming client (Web, TV, Desktop, Mobile)",
+  "description": "Vntera TV — IPTV streaming for web, Android, Android TV and Windows",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -12,7 +12,14 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "apk": "node scripts/build-apk.mjs",
-    "qr": "node scripts/make-qr.mjs"
+    "qr": "node scripts/make-qr.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "desktop": "node scripts/build-desktop.mjs --dev",
+    "desktop:smoke": "node scripts/build-desktop.mjs --dev --smoke",
+    "desktop:build": "node scripts/build-desktop.mjs",
+    "tv": "node scripts/build-apk.mjs --target tv",
+    "apk:all": "node scripts/build-apk.mjs --target both",
+    "artifacts": "node scripts/publish-artifacts.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
@@ -32,10 +39,17 @@
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
     "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
     "qrcode": "^1.5.4",
     "tailwindcss": "^4.1.8",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",
     "vitest": "^5.1.0"
+  },
+  "main": "desktop/main.mjs",
+  "author": {
+    "name": "Vntera Media Networks",
+    "email": "support@vntera.com"
   }
 }

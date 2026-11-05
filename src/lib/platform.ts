@@ -4,7 +4,14 @@ const TV_UA = /(smart-?tv|smarttv|tizen|web0s|webos|netcast|hbbtv|appletv|google
 const TABLET_UA = /(ipad|tablet|playbook|silk|kindle)/i
 const MOBILE_UA = /(iphone|ipod|android|blackberry|iemobile|opera mini|mobile)/i
 
+/** The Android TV build bakes its form factor in: a TV WebView reports a
+ *  generic "Linux; Android 12" agent that is indistinguishable from a phone. */
+const BUILD_FORM = import.meta.env.VITE_FORCE_FORM as FormFactor | undefined
+
 function forcedForm(): FormFactor | null {
+  if (BUILD_FORM === 'tv' || BUILD_FORM === 'mobile' || BUILD_FORM === 'tablet' || BUILD_FORM === 'desktop') {
+    return BUILD_FORM
+  }
   try {
     const v = new URLSearchParams(window.location.search).get('form')
     return v === 'tv' || v === 'mobile' || v === 'tablet' || v === 'desktop' ? v : null

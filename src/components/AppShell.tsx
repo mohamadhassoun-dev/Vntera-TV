@@ -216,10 +216,10 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
       <footer className="border-t border-stroke bg-canvas px-4 pb-24 pt-8 md:px-8 md:pb-8">
         <div className={`mx-auto flex max-w-6xl flex-col gap-6 md:flex-row md:items-center md:justify-between ${isTV ? 'px-8' : ''}`}>
           <div className="max-w-md">
-            <h2 className="text-[13px] font-extrabold uppercase tracking-widest text-white">Get the app on Android</h2>
+            <h2 className="text-[13px] font-extrabold uppercase tracking-widest text-white">Get Vntera on every screen</h2>
             <p className="mt-1.5 text-[12px] leading-relaxed text-ink-soft">
-              The same sign-in, library and watchlist on your phone. Version {ANDROID_RELEASE.version} ·{' '}
-              {ANDROID_RELEASE.sizeLabel} · Android {ANDROID_RELEASE.minAndroid}+.
+              Version {ANDROID_RELEASE.version} for Android phones, Android TV and Windows —{' '}
+              the same sign-in, library and watchlist everywhere.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <a
@@ -228,39 +228,71 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
                 className="btn btn-primary !px-4 !py-2.5 text-[12px] uppercase tracking-wide"
                 data-nav="true"
               >
-                <Icon name="download" size={16} /> Download APK
+                <Icon name="download" size={16} /> Android APK
               </a>
-              <Link to="/download" className="btn btn-secondary !px-4 !py-2.5 text-[12px]" data-nav="true">
+              <Link to="/download?platform=tv" className="btn btn-secondary !px-4 !py-2.5 text-[12px]" data-nav="true">
+                <Icon name="tv" size={15} /> TV build
+              </Link>
+              <Link to="/download?platform=desktop" className="btn btn-secondary !px-4 !py-2.5 text-[12px]" data-nav="true">
+                <Icon name="grid" size={15} /> Windows
+              </Link>
+              <Link
+                to="/download"
+                className="px-1 text-[12px] font-bold uppercase tracking-wide text-ink-soft hover:text-white"
+                data-nav="true"
+              >
                 Install help
               </Link>
             </div>
           </div>
 
-          <Link
-            to="/download"
-            data-nav="true"
-            aria-label="Scan the QR code to download the Vntera Android app"
-            className="flex items-center gap-3 rounded-[4px] border border-stroke bg-layer-1 p-2.5 pr-4 transition-colors hover:border-white/25"
-          >
-            <img
-              src="/media/app-qr.png"
-              alt="QR code that opens the Vntera Android download page"
-              width={96}
-              height={96}
-              loading="lazy"
-              decoding="async"
-              className="h-24 w-24 rounded-[3px] bg-white p-1"
-            />
-            <span className="text-[11px] leading-snug text-ink-soft">
-              <span className="block font-bold uppercase tracking-wider text-white">Scan to install</span>
-              Point your phone camera here, or tap for the download page.
-            </span>
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link
+              to="/download"
+              data-nav="true"
+              aria-label="Scan the QR code to install Vntera on a phone, TV or PC"
+              className="flex items-center gap-3 rounded-[4px] border border-stroke bg-layer-1 p-2.5 pr-4 transition-colors hover:border-white/25"
+            >
+              <img
+                src="/media/qr-phone.png"
+                alt="QR code that opens the Vntera download page"
+                width={96}
+                height={96}
+                loading="lazy"
+                decoding="async"
+                className="h-24 w-24 rounded-[3px] bg-white p-1"
+              />
+              <span className="text-[11px] leading-snug text-ink-soft">
+                <span className="block font-bold uppercase tracking-wider text-white">Scan to install</span>
+                Point your phone camera here, or tap for the download page.
+              </span>
+            </Link>
+            <Link
+              to="/download?platform=tv"
+              data-nav="true"
+              aria-label="Scan the QR code for the Android TV build"
+              className="hidden items-center gap-3 rounded-[4px] border border-stroke bg-layer-1 p-2.5 pr-4 transition-colors hover:border-white/25 sm:flex"
+            >
+              <img
+                src="/media/qr-tv.png"
+                alt="QR code that opens the Vntera Android TV download"
+                width={96}
+                height={96}
+                loading="lazy"
+                decoding="async"
+                className="h-24 w-24 rounded-[3px] bg-white p-1"
+              />
+              <span className="text-[11px] leading-snug text-ink-soft">
+                <span className="block font-bold uppercase tracking-wider text-white">Android TV</span>
+                Scan for the TV build.
+              </span>
+            </Link>
+          </div>
         </div>
 
         <div className="mx-auto mt-7 flex max-w-6xl flex-wrap items-center justify-between gap-3 border-t border-stroke pt-4 text-[11px] text-ink-mute">
           <span>© {new Date().getFullYear()} Vntera</span>
-          <span className="font-bold uppercase tracking-wider">Android {ANDROID_RELEASE.version}</span>
+          <span className="font-bold uppercase tracking-wider">Build {ANDROID_RELEASE.version}</span>
         </div>
       </footer>
 
