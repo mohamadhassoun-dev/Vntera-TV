@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+
 import type { ErrorData, Level, MediaPlaylist } from 'hls.js'
 import type { Quality } from '../../types'
 import { Icon } from '../Icons'
@@ -102,7 +102,6 @@ export function Player({
   liveProgramme,
   onStall,
 }: PlayerProps) {
-  const navigate = useNavigate()
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<InstanceType<HlsCtor> | null>(null)
@@ -157,6 +156,9 @@ export function Player({
   const [ended, setEnded] = useState(false)
   const [scrubbing, setScrubbing] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  /** A failure that does not stop the film (no PiP, no cast target) is a
+   *  passing remark, not a reason to cover the picture. */
+  const [notice, setNotice] = useState<string | null>(null)
   /** Timeshift window of a live stream, so it can be paused and rewound. */
   const [liveWindow, setLiveWindow] = useState<{ start: number; end: number } | null>(null)
 
@@ -770,11 +772,21 @@ export function Player({
       } else if (document.pictureInPictureEnabled) {
         await video.requestPictureInPicture()
         setPipActive(true)
+      } else {
+        setNotice('Picture-in-Picture is not available for this stream.')
       }
     } catch {
-      setError('Picture-in-Picture is not available for this stream.')
+      // The film is still playing; a fatal overlay here would be a lie, and its
+      // Retry button could only reload a stream that is fine.
+      setNotice('Picture-in-Picture is not available for this stream.')
     }
   }, [])
+
+  useEffect(() => {
+    if (!notice) return
+    const t = window.setTimeout(() => setNotice(null), 3600)
+    return () => window.clearTimeout(t)
+  }, [notice])
 
   // ------------------------------ keyboard ----------------------------------
   useEffect(() => {
@@ -964,6 +976,16 @@ export function Player({
       {/* audio-only: the empty video area becomes an in-house platform promo */}
       {audioOnly ? <AudioOnlyAds title={title} /> : null}
 
+      {/* a passing remark: something was refused, the film is unaffected */}
+      {notice ? (
+        <div
+          role="status"
+          className="pointer-events-none absolute left-1/2 top-3 z-40 w-[min(92%,26rem)] -translate-x-1/2 rounded-[4px] border border-crimson/40 bg-black/85 px-3 py-2 text-center text-[12px] leading-snug text-white shadow-lg"
+        >
+          {notice}
+        </div>
+      ) : null}
+
       {/* buffering */}
       {buffering && !error ? (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/40">
@@ -1087,7 +1109,7 @@ export function Player({
         {/* top bar */}
         <div className="flex items-start justify-between gap-3 p-3 md:p-5">
           <div className="flex min-w-0 items-center gap-2.5">
-            <button className="icon-btn mb-5 !h-9 !w-9 is-focused" aria-label="Back" data-nav="true" onClick={() => navigate(-1)}>
+            <button className="icon-btn mb-5 !h-9 !w-9" aria-label="Back" data-nav="true" onClick={onExit}>
               <Icon name="chevronLeft" size={18} />
             </button>
             <div className="min-w-0">
@@ -1098,7 +1120,7 @@ export function Player({
             {castable && !isLive ? (
               <button
                 className="icon-btn !h-9 !w-9"
-                onClick={() => videoRef.current && startCast(videoRef.current).catch(() => setError('No cast device found.'))}
+                onClick={() => videoRef.current && startCast(videoRef.current).catch(() => setNotice('No cast device found.'))}
                 data-nav="true"
                 aria-label="Cast to TV"
                 title="Cast (Chromecast / AirPlay)"

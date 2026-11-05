@@ -152,12 +152,20 @@ export default function WatchPage() {
     return true
   }, [kind, editions, edition, season, episode, navigate, numericId])
 
+  // Leaving the player means leaving it: the old handler navigated to
+  // /watch/<kind>/<id>, which is the page it was already on, so back and
+  // "Go back" on the error panel looked like dead buttons. The place the
+  // player was opened from is the title page (live channels have none).
   const exit = () => {
-    if (title) {
-      if (kind === 'live') navigate(`/watch/live/${title.id}?edition=${edition?.streamId}`)
-      else if (kind === 'series') navigate(`/watch/series/${title.id}?season=${season}&episode=${episode}`)
-      else navigate(`/watch/movie/${title.id}`)
-    } else navigate(-1)
+    if (!title) {
+      navigate(-1)
+      return
+    }
+    if (kind === 'live') {
+      navigate('/live', { replace: true })
+      return
+    }
+    navigate(`/title/${kind}/${title.id}`, { replace: true })
   }
 
   const editionOptions: EditionOption[] = []
