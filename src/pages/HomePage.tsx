@@ -11,6 +11,8 @@ import {
   ProviderLogoCard,
 } from '../components/cards'
 import { CollectionCard } from '../components/CollectionCard'
+import { ChannelLogoGrid } from '../components/ChannelLogoGrid'
+import { SectionHeading } from '../components/Badges'
 import { ShortcutEditor } from '../components/ShortcutEditor'
 import { ContinueRail, PosterRail, Rail, ShortcutChannelRail, TopTenRail } from '../components/Rails'
 import { Icon } from '../components/Icons'
@@ -28,6 +30,7 @@ import {
 } from '../lib/homeRotation'
 import { collectionTitles } from '../lib/collections'
 import { musicChannelTitles } from '../lib/musicChannels'
+import { arabicChannelFamilies } from '../lib/arabicChannels'
 import { isHiddenFromHome } from '../lib/hidden'
 import { categoriesWithCounts, useCatalog } from '../store/catalog'
 import { defaultShortcutItems, resolveShortcuts, useShortcuts } from '../store/shortcuts'
@@ -67,16 +70,19 @@ interface HomeRows {
  *  titles again. */
 const rowsCache = new WeakMap<readonly Title[], Map<string, HomeRows>>()
 
-function computeHomeRows(movies: readonly Title[], weekIndex: number, rotationIndex: number): HomeRows {
-  let byWeek = rowsCache.get(movies)
+export function computeHomeRows(allMovies: readonly Title[], weekIndex: number, rotationIndex: number): HomeRows {
+  let byWeek = rowsCache.get(allMovies)
   if (!byWeek) {
     byWeek = new Map()
-    rowsCache.set(movies, byWeek)
+    rowsCache.set(allMovies, byWeek)
   }
   const cacheKey = `${weekIndex}:${rotationIndex}`
   const cached = byWeek.get(cacheKey)
   if (cached) return cached
 
+  // See lib/hidden: a few panel entries are kept off the landing page, here where
+  // every rail is built so no caller can put them back.
+  const movies = allMovies.filter((movie) => !isHiddenFromHome(movie))
   const since = Date.now() / 1000 - WEEK_SECONDS
   const recentMovies = movies
     .filter((movie) => movie.addedAt >= since)
@@ -164,14 +170,18 @@ export default function HomePage() {
     return scheduleNextRotationUpdate(() => setRotationIndex(utcRotationIndex(new Date())), Date.now())
   }, [rotationIndex])
 
-  // See lib/hidden: a couple of panel entries are kept off the landing page only.
-  const movies = useMemo(() => (snapshot?.movies ?? []).filter((movie) => !isHiddenFromHome(movie)), [snapshot])
+  const movies = useMemo(() => snapshot?.movies ?? [], [snapshot])
   const rows = useMemo(
     () => computeHomeRows(movies, weekIndex, rotationIndex),
     [movies, weekIndex, rotationIndex],
   )
   // Live music channels, cached per catalogue so back navigation stays instant.
   const music = useMemo(() => (snapshot ? musicChannelTitles(snapshot.channels) : []), [snapshot])
+  // Arabic broadcasters for the closing grid; one card per brand, logos first.
+  const arabicChannels = useMemo(
+    () => (snapshot ? arabicChannelFamilies(snapshot.channels) : []),
+    [snapshot],
+  )
 
   const heroSlides = rows.hero
   const hero = heroSlides[heroIndex % Math.max(heroSlides.length, 1)]
@@ -353,6 +363,13 @@ export default function HomePage() {
           <PosterRail title="Blockbusters" titles={rows.blockbusters} arrows={false} />
           <PosterRail title="New on Vntera" titles={rows.fresh} arrows={false} />
           <PosterRail title="Popular on Vntera" titles={rows.popular} arrows={false} />
+
+          {arabicChannels.length ? (
+            <section aria-label="Arabic channels">
+              <SectionHeading title="Arabic channels" meta={`${Math.min(21, arabicChannels.length)} live`} />
+              <ChannelLogoGrid families={arabicChannels} />
+            </section>
+          ) : null}
         </div>
 
         {editorOpen ? (
