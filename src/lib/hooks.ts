@@ -50,6 +50,8 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown>, enabled = tr
   const [pull, setPull] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
   const startY = useRef<number | null>(null)
+  /** Last painted pull distance, so a drag repaints in steps instead of per pixel. */
+  const painted = useRef(0)
   const THRESHOLD = 72
 
   const onTouchStart = useCallback(
@@ -64,7 +66,13 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown>, enabled = tr
     (e: React.TouchEvent) => {
       if (startY.current == null || refreshing) return
       const delta = (e.touches[0]?.clientY ?? 0) - startY.current
-      if (delta > 0 && window.scrollY <= 0) setPull(Math.min(120, delta * 0.55))
+      if (delta <= 0 || window.scrollY > 0) return
+      const next = Math.min(120, delta * 0.55)
+      // Re-rendering the whole page on every touchmove is what made the first
+      // drag feel sticky; 8px steps are invisible but eight times cheaper.
+      if (Math.abs(next - painted.current) < 8) return
+      painted.current = next
+      setPull(next)
     },
     [refreshing],
   )
@@ -79,6 +87,7 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown>, enabled = tr
       }
     }
     setPull(0)
+    painted.current = 0
     startY.current = null
   }, [onRefresh, pull])
 

@@ -7,6 +7,7 @@ import { AudioOnlyAds } from './AudioOnlyAds'
 import { detectNetworkSpeed, slowNetworkCap } from '../../lib/editions'
 import { formatTimecode } from '../../lib/format'
 import { canCastVideo, isNativeShell, startCast } from '../../lib/platform'
+import { trackAxis, trackRatio } from '../../lib/seek'
 import { useWakeLock } from '../../lib/hooks'
 import { useSettings } from '../../store/settings'
 
@@ -98,6 +99,12 @@ export function Player({
   const tsRef = useRef<ReturnType<MpegtsLib['createPlayer']> | null>(null)
   const hideTimer = useRef<number | null>(null)
   const lastSaved = useRef(0)
+  /** Last position pushed into React state, so playback does not re-render constantly. */
+  const lastPushedTime = useRef(0)
+  /** Long-press repeat on the skip buttons, and whether the press already stepped. */
+  const holdTimer = useRef<number | null>(null)
+  const holdRepeat = useRef<number | null>(null)
+  const heldLong = useRef(false)
   const triedAlt = useRef(false)
   /** Automatic re-attach attempts for a stalling VOD stream, and where to resume. */
   const autoRetries = useRef(0)
@@ -355,7 +362,13 @@ export function Player({
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
-    const onTime = () => setCurrent(video.currentTime)
+    const onTime = () => {
+      // Labels show whole seconds, so half-second renders are wasted work.
+      const next = video.currentTime
+      if (Math.abs(next - lastPushedTime.current) < 0.5) return
+      lastPushedTime.current = next
+      setCurrent(next)
+    }
     const onDur = () => {
       setDuration(Number.isFinite(video.duration) ? video.duration : 0)
       syncLiveWindow()
@@ -628,6 +641,33 @@ export function Player({
     reveal()
   }, [isLive, liveWindow, reveal])
 
+  const endHold = useCallback(() => {
+    if (holdTimer.current !== null) window.clearTimeout(holdTimer.current)
+    if (holdRepeat.current !== null) window.clearInterval(holdRepeat.current)
+    holdTimer.current = null
+    holdRepeat.current = null
+  }, [])
+
+  /**
+   * A tap steps ten seconds; holding walks second by second, then by ten seconds,
+   * then by whole minutes, which is the only way to land on an exact moment.
+   */
+  const startHold = useCallback(
+    (direction: 1 | -1) => {
+      heldLong.current = false
+      endHold()
+      holdTimer.current = window.setTimeout(() => {
+        heldLong.current = true
+        const started = Date.now()
+        holdRepeat.current = window.setInterval(() => {
+          const held = Date.now() - started
+          seekBy(direction * (held < 1200 ? 1 : held < 3000 ? 10 : 60))
+        }, 120)
+      }, 280)
+    },
+    [endHold, seekBy],
+  )
+
   const goLive = useCallback(() => {
     const video = videoRef.current
     if (!video || !liveWindow) return
@@ -672,11 +712,12 @@ export function Player({
           break
         case 'ArrowRight':
         case 'l':
-          seekBy(10)
+          // Shift jumps a minute, matching the long-press ramp of the buttons.
+          seekBy(e.shiftKey ? 60 : 10)
           break
         case 'ArrowLeft':
         case 'j':
-          seekBy(-10)
+          seekBy(e.shiftKey ? -60 : -10)
           break
         case 'ArrowUp':
           e.preventDefault()
@@ -770,9 +811,16 @@ export function Player({
     return Math.min(100, (video.buffered.end(video.buffered.length - 1) / duration) * 100)
   })()
 
-  const seekTo = (clientX: number, element: HTMLElement) => {
-    const rect = element.getBoundingClientRect()
-    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+  /**
+   * Where along the track the finger is. Cinema mode rotates the whole player, so
+   * the bar runs down the screen and only the vertical coordinate means anything.
+   */
+  const seekTo = (clientX: number, clientY: number, element: HTMLElement) => {
+    const ratio = trackRatio(
+      { x: clientX, y: clientY },
+      element.getBoundingClientRect(),
+      trackAxis(cinema && portrait),
+    )
     const video = videoRef.current
     if (!video) return
     if (isLive) {
@@ -998,15 +1046,15 @@ export function Player({
                     className="group/seek relative flex h-6 cursor-pointer items-center"
                     onMouseDown={(e) => {
                       setScrubbing(true)
-                      seekTo(e.clientX, e.currentTarget)
+                      seekTo(e.clientX, e.clientY, e.currentTarget)
                     }}
                     onMouseMove={(e) => {
-                      if (scrubbing) seekTo(e.clientX, e.currentTarget)
+                      if (scrubbing) seekTo(e.clientX, e.clientY, e.currentTarget)
                     }}
                     onMouseUp={() => setScrubbing(false)}
                     onMouseLeave={() => setScrubbing(false)}
-                    onTouchStart={(e) => seekTo(e.touches[0].clientX, e.currentTarget)}
-                    onTouchMove={(e) => seekTo(e.touches[0].clientX, e.currentTarget)}
+                    onTouchStart={(e) => seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)}
+                    onTouchMove={(e) => seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)}
                     role="slider"
                     aria-label="Seek live TV"
                     aria-valuemin={Math.round(liveWindow.start)}
@@ -1065,15 +1113,15 @@ export function Player({
                 className="group/seek relative flex h-6 cursor-pointer items-center"
                 onMouseDown={(e) => {
                   setScrubbing(true)
-                  seekTo(e.clientX, e.currentTarget)
+                  seekTo(e.clientX, e.clientY, e.currentTarget)
                 }}
                 onMouseMove={(e) => {
-                  if (scrubbing) seekTo(e.clientX, e.currentTarget)
+                  if (scrubbing) seekTo(e.clientX, e.clientY, e.currentTarget)
                 }}
                 onMouseUp={() => setScrubbing(false)}
                 onMouseLeave={() => setScrubbing(false)}
-                onTouchStart={(e) => seekTo(e.touches[0].clientX, e.currentTarget)}
-                onTouchMove={(e) => seekTo(e.touches[0].clientX, e.currentTarget)}
+                onTouchStart={(e) => seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)}
+                onTouchMove={(e) => seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)}
                 role="slider"
                 aria-label="Seek"
                 aria-valuemin={0}
@@ -1106,7 +1154,20 @@ export function Player({
 
           <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
             {!isLive || liveWindow ? (
-              <button className="icon-btn !border-0 !bg-transparent" onClick={() => seekBy(-10)} data-nav="true" aria-label="Rewind 10 seconds">
+              <button
+                className="icon-btn !border-0 !bg-transparent"
+                onPointerDown={() => startHold(-1)}
+                onPointerUp={endHold}
+                onPointerLeave={endHold}
+                onPointerCancel={endHold}
+                onClick={() => {
+                  if (!heldLong.current) seekBy(-10)
+                  heldLong.current = false
+                }}
+                data-nav="true"
+                aria-label="Rewind 10 seconds, hold for second-by-second"
+                title="Tap 10s · hold for 1s steps"
+              >
                 <Icon name="forward" size={19} className="-scale-x-100" />
               </button>
             ) : null}
@@ -1119,7 +1180,20 @@ export function Player({
               <Icon name={playing ? 'pause' : 'play'} size={20} />
             </button>
             {!isLive || liveWindow ? (
-              <button className="icon-btn !border-0 !bg-transparent" onClick={() => seekBy(10)} data-nav="true" aria-label="Forward 10 seconds">
+              <button
+                className="icon-btn !border-0 !bg-transparent"
+                onPointerDown={() => startHold(1)}
+                onPointerUp={endHold}
+                onPointerLeave={endHold}
+                onPointerCancel={endHold}
+                onClick={() => {
+                  if (!heldLong.current) seekBy(10)
+                  heldLong.current = false
+                }}
+                data-nav="true"
+                aria-label="Forward 10 seconds, hold for second-by-second"
+                title="Tap 10s · hold for 1s steps"
+              >
                 <Icon name="forward" size={19} />
               </button>
             ) : null}

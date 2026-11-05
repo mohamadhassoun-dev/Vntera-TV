@@ -28,6 +28,7 @@ import {
 } from '../lib/homeRotation'
 import { collectionTitles } from '../lib/collections'
 import { musicChannelTitles } from '../lib/musicChannels'
+import { isHiddenFromHome } from '../lib/hidden'
 import { categoriesWithCounts, useCatalog } from '../store/catalog'
 import { defaultShortcutItems, resolveShortcuts, useShortcuts } from '../store/shortcuts'
 import { continueWatching, useLibrary } from '../store/library'
@@ -163,7 +164,8 @@ export default function HomePage() {
     return scheduleNextRotationUpdate(() => setRotationIndex(utcRotationIndex(new Date())), Date.now())
   }, [rotationIndex])
 
-  const movies = useMemo(() => snapshot?.movies ?? [], [snapshot])
+  // See lib/hidden: a couple of panel entries are kept off the landing page only.
+  const movies = useMemo(() => (snapshot?.movies ?? []).filter((movie) => !isHiddenFromHome(movie)), [snapshot])
   const rows = useMemo(
     () => computeHomeRows(movies, weekIndex, rotationIndex),
     [movies, weekIndex, rotationIndex],

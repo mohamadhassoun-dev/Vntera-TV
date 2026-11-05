@@ -121,6 +121,9 @@ export function installRoutePrefetch(): () => void {
     warmRoute('/title/')
     warmRoute('/search')
     warmRoute('/profile')
+    // Phones never hover, so without this the player chunk only starts loading
+    // after the tap lands — the most noticeable delay in the app.
+    warmRoute('/watch/movie/', { force: true })
   })
 
   return () => {

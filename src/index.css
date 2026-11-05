@@ -41,6 +41,9 @@
     color-scheme: dark;
     font-size: 16px;
     scrollbar-width: none;
+    /* Answer a tap immediately instead of waiting to see whether it becomes a
+       double-tap zoom. */
+    touch-action: manipulation;
   }
 
   html::-webkit-scrollbar,
@@ -75,6 +78,7 @@
   textarea {
     font: inherit;
     color: inherit;
+    touch-action: manipulation;
   }
 
   input,

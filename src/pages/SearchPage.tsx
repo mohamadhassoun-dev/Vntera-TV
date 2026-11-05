@@ -6,7 +6,6 @@ import { EmptyState } from '../components/Feedback'
 import { Icon } from '../components/Icons'
 import { SectionHeading } from '../components/Badges'
 import { useCatalog } from '../store/catalog'
-import { useUI } from '../store/ui'
 import {
   DEFAULT_FILTERS,
   groupChannelsByBrand,
@@ -27,7 +26,6 @@ const KINDS: Array<{ key: SearchFilters['kind']; label: string }> = [
 
 export default function SearchPage() {
   const snapshot = useCatalog((s) => s.snapshot)
-  const toast = useUI((s) => s.toast)
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const [picker, setPicker] = useState<{ name: string; channels: Title[] } | null>(null)
@@ -35,14 +33,9 @@ export default function SearchPage() {
   const debounced = useDebounced(query, 300)
   const [filters, setFilters] = useState<SearchFilters>(DEFAULT_FILTERS)
   const [recent, setRecent] = useState<string[]>(() => localGet<string[]>('search:recent', []))
-  const [listening, setListening] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const recognitionRef = useRef<{ stop: () => void; abort?: () => void } | null>(null)
-
   useEffect(() => {
     inputRef.current?.focus()
-    // Leaving the page must release the microphone.
-    return () => recognitionRef.current?.abort?.()
   }, [])
 
   const results = useMemo(() => searchContent(snapshot, debounced, filters), [snapshot, debounced, filters])
@@ -58,81 +51,6 @@ export default function SearchPage() {
     const next = [clean, ...recent.filter((r) => r.toLowerCase() !== clean.toLowerCase())].slice(0, 10)
     setRecent(next)
     localSet('search:recent', next)
-  }
-
-  const voiceSearch = () => {
-    if (listening) {
-      recognitionRef.current?.stop()
-      setListening(false)
-      return
-    }
-    const w = window as unknown as {
-      SpeechRecognition?: new () => {
-        lang: string
-        interimResults: boolean
-        continuous: boolean
-        maxAlternatives: number
-        start: () => void
-        stop: () => void
-        abort: () => void
-        onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null
-        onend: (() => void) | null
-        onerror: ((e: { error?: string }) => void) | null
-      }
-      webkitSpeechRecognition?: typeof w.SpeechRecognition
-    }
-    const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition
-    if (!Ctor) {
-      toast('Voice search is not supported in this browser. Type instead.', 'error')
-      return
-    }
-    // A previous recognizer may still be alive after an error.
-    recognitionRef.current?.abort?.()
-    const rec = new Ctor()
-    recognitionRef.current = rec
-    // Arabic panels answer to Arabic queries too, so follow the UI language.
-    rec.lang = document.documentElement.lang || navigator.language || 'en-US'
-    rec.interimResults = false
-    rec.continuous = false
-    rec.maxAlternatives = 1
-    rec.onresult = (event) => {
-      const last = event.results[event.results.length - 1]
-      const transcript = (last?.[0]?.transcript ?? '').trim().replace(/[.,!?;:\s]+$/, '')
-      if (!transcript) return
-      setQuery(transcript)
-      remember(transcript)
-      setListening(false)
-      // Put the caret after the recognised words so typing can continue.
-      window.setTimeout(() => {
-        const input = inputRef.current
-        if (!input) return
-        input.focus({ preventScroll: true })
-        input.setSelectionRange(transcript.length, transcript.length)
-      }, 0)
-    }
-    rec.onend = () => setListening(false)
-    rec.onerror = (event) => {
-      setListening(false)
-      const code = event?.error ?? ''
-      if (code === 'not-allowed' || code === 'service-not-allowed') {
-        toast('Microphone permission was blocked. Allow it in the browser to search by voice.', 'error')
-      } else if (code === 'no-speech') {
-        toast("Didn't catch that. Tap the mic and try again.", 'error')
-      } else if (code === 'audio-capture') {
-        toast('No microphone found for voice search.', 'error')
-      } else if (code === 'network') {
-        toast("Voice search needs an internet connection. Type your search instead.", 'error')
-      } else if (code !== 'aborted') {
-        toast('Voice search failed. Type your search instead.', 'error')
-      }
-    }
-    setListening(true)
-    try {
-      rec.start()
-    } catch {
-      setListening(false)
-      toast('Voice search could not start. Try again.', 'error')
-    }
   }
 
   const hasCriteria =
@@ -162,14 +80,6 @@ export default function SearchPage() {
                   <Icon name="close" size={16} />
                 </button>
               ) : null}
-              <button
-                onClick={voiceSearch}
-                className={`icon-btn !h-8 !w-8 ${listening ? '!border-crimson !bg-crimson/20 text-crimson' : ''}`}
-                aria-label="Voice search"
-                title="Voice search"
-              >
-                <Icon name="mic" size={16} />
-              </button>
             </div>
           </div>
 
