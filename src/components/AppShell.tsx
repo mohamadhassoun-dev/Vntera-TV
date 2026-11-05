@@ -7,6 +7,7 @@ import { useUI } from '../store/ui'
 import { useOnline, useScrolledPast } from '../lib/hooks'
 import { installRoutePrefetch } from '../lib/prefetch'
 import { useAutoAlerts } from '../lib/alerts'
+import { ANDROID_RELEASE } from '../lib/release'
 import { Icon, type IconName } from './Icons'
 import { MobileTabBar } from './MobileTabBar'
 import type { FormFactor } from '../lib/platform'
@@ -212,9 +213,54 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
 
       <main className="min-w-0">{children}</main>
 
-      <footer className="border-t border-stroke bg-canvas px-4 pb-24 pt-6 md:px-8 md:pb-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] text-ink-mute">
+      <footer className="border-t border-stroke bg-canvas px-4 pb-24 pt-8 md:px-8 md:pb-8">
+        <div className={`mx-auto flex max-w-6xl flex-col gap-6 md:flex-row md:items-center md:justify-between ${isTV ? 'px-8' : ''}`}>
+          <div className="max-w-md">
+            <h2 className="text-[13px] font-extrabold uppercase tracking-widest text-white">Get the app on Android</h2>
+            <p className="mt-1.5 text-[12px] leading-relaxed text-ink-soft">
+              The same sign-in, library and watchlist on your phone. Version {ANDROID_RELEASE.version} ·{' '}
+              {ANDROID_RELEASE.sizeLabel} · Android {ANDROID_RELEASE.minAndroid}+.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <a
+                href={ANDROID_RELEASE.file}
+                download={`vntera-${ANDROID_RELEASE.version}.apk`}
+                className="btn btn-primary !px-4 !py-2.5 text-[12px] uppercase tracking-wide"
+                data-nav="true"
+              >
+                <Icon name="download" size={16} /> Download APK
+              </a>
+              <Link to="/download" className="btn btn-secondary !px-4 !py-2.5 text-[12px]" data-nav="true">
+                Install help
+              </Link>
+            </div>
+          </div>
+
+          <Link
+            to="/download"
+            data-nav="true"
+            aria-label="Scan the QR code to download the Vntera Android app"
+            className="flex items-center gap-3 rounded-[4px] border border-stroke bg-layer-1 p-2.5 pr-4 transition-colors hover:border-white/25"
+          >
+            <img
+              src="/media/app-qr.png"
+              alt="QR code that opens the Vntera Android download page"
+              width={96}
+              height={96}
+              loading="lazy"
+              decoding="async"
+              className="h-24 w-24 rounded-[3px] bg-white p-1"
+            />
+            <span className="text-[11px] leading-snug text-ink-soft">
+              <span className="block font-bold uppercase tracking-wider text-white">Scan to install</span>
+              Point your phone camera here, or tap for the download page.
+            </span>
+          </Link>
+        </div>
+
+        <div className="mx-auto mt-7 flex max-w-6xl flex-wrap items-center justify-between gap-3 border-t border-stroke pt-4 text-[11px] text-ink-mute">
           <span>© {new Date().getFullYear()} Vntera</span>
+          <span className="font-bold uppercase tracking-wider">Android {ANDROID_RELEASE.version}</span>
         </div>
       </footer>
 
