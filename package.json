@@ -1,7 +1,7 @@
 {
   "name": "vntera-iptv",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "type": "module",
   "description": "Vntera — cross-platform IPTV streaming client (Web, TV, Desktop, Mobile)",
   "scripts": {

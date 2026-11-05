@@ -3,7 +3,7 @@ import { useCatalog } from '../store/catalog'
 import { useEpg } from '../store/epg'
 import { useLibrary } from '../store/library'
 import { useSettings } from '../store/settings'
-import { notificationKey, takeUnannounced } from './notifications'
+import { alertTitleKey, notificationKey, takeUnannounced } from './notifications'
 import type { CatalogSnapshot, EpgProgramme, NotificationItem, Title } from '../types'
 
 type AddNotification = (item: Omit<NotificationItem, 'id' | 'createdAt' | 'read'>) => void
@@ -122,6 +122,13 @@ function diffCatalog(snapshot: CatalogSnapshot, previous: CatalogSnapshot | null
   )
   const alreadyAnnounced = (title: Title) =>
     announced.has(notificationKey(newTitleNotification(title)))
+  // Seed the identity list from titles already sitting in the centre, so the
+  // history survives "Clear all" on a profile that upgraded mid-announcement.
+  if (announced.size) {
+    for (const title of [...snapshot.movies, ...snapshot.series]) {
+      if (alreadyAnnounced(title)) seen.add(alertTitleKey(title))
+    }
+  }
 
   const nextMovieIds = snapshot.movies.map((t) => String(t.id))
   const nextSeriesIds = snapshot.series.map((t) => String(t.id))
