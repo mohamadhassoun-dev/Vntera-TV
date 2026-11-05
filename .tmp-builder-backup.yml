@@ -1,0 +1,52 @@
+# Windows desktop package for Vntera.
+#
+# The app has no runtime npm dependencies: dist/ is the built web bundle and
+# server/ is plain Node, so the installer carries only those plus the shell.
+appId: com.vntera.desktop
+productName: Vntera
+copyright: © 2026 Vntera Media Networks
+
+directories:
+  output: release/desktop
+  buildResources: build
+
+files:
+  - dist/**/*
+  - server/**/*
+  - server.js
+  - desktop/**/*
+  - package.json
+  - '!**/*.map'
+  - '!**/downloads/**'
+
+# Nothing here is a native module, so skip the rebuild pass.
+npmRebuild: false
+
+# The installer is published through git, which rejects single files over
+# 100 MB. LZMA maximum plus only the locales the shell can show keeps it well
+# under that ceiling.
+compression: maximum
+electronLanguages:
+  - en
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.png
+  artifactName: Vntera-Setup-${version}.exe
+  legalTrademarks: Vntera
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Vntera
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  uninstallDisplayName: Vntera ${version}
+  deleteAppDataOnUninstall: false

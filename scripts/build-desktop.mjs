@@ -10,6 +10,7 @@
  */
 import { execFileSync, spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -44,13 +45,25 @@ if (devOnly) {
   child.on('exit', (code) => process.exit(code ?? 0))
 } else {
   console.log('\n▸ packaging the Windows installer')
+  // Build outside the project folder: Windows' controlled-folder protection can
+  // refuse to launch a freshly written installer from Desktop, and the packager
+  // runs it once to extract the uninstaller.
+  const out = join(tmpdir(), 'vntera-desktop-build')
+  rmSync(out, { recursive: true, force: true })
   run(
     process.execPath,
-    [join(root, 'node_modules', 'electron-builder', 'cli.js'), '--win', 'nsis', '--x64', '--config', 'electron-builder.yml'],
+    [
+      join(root, 'node_modules', 'electron-builder', 'cli.js'),
+      '--win',
+      'nsis',
+      '--x64',
+      '--config',
+      'electron-builder.yml',
+      `-c.directories.output=${out}`,
+    ],
     { CSC_IDENTITY_AUTO_DISCOVERY: 'false' },
   )
 
-  const out = join(root, 'release', 'desktop')
   const installer = readdirSync(out).find((file) => file.endsWith('.exe'))
   if (!installer) throw new Error(`electron-builder finished without an installer in ${out}`)
 

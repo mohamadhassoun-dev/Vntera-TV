@@ -33,3 +33,11 @@ AddType application/vnd.android.package-archive .apk
     Header set Cache-Control "no-cache"
   </FilesMatch>
 </IfModule>
+
+# Compress text the host would otherwise send raw (LiteSpeed/Apache).
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css text/xml application/javascript application/json application/manifest+json image/svg+xml
+</IfModule>
+<IfModule mod_brotli.c>
+  AddOutputFilterByType BROTLI_COMPRESS text/html text/plain text/css text/xml application/javascript application/json application/manifest+json image/svg+xml
+</IfModule>

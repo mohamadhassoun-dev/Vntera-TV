@@ -28,7 +28,6 @@ npmRebuild: false
 compression: maximum
 electronLanguages:
   - en
-  - ar
 
 win:
   target:
