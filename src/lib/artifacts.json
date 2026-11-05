@@ -2,18 +2,18 @@
   "version": "1.1.7",
   "phone": {
     "file": "/downloads/vntera-1.1.7.apk",
-    "bytes": 7865914,
+    "bytes": 7865942,
     "available": true
   },
   "tv": {
     "file": "/downloads/vntera-tv-1.1.7.apk",
-    "bytes": 7885938,
+    "bytes": 7885958,
     "available": true
   },
   "desktop": {
     "file": "/downloads/Vntera-Setup-1.1.7.exe",
     "url": "https://github.com/mohamadhassoun1/Vntera-TV/releases/download/v1.1.7/Vntera-Setup-1.1.7.exe",
-    "bytes": 124094586,
+    "bytes": 124094442,
     "available": true
   }
 }
