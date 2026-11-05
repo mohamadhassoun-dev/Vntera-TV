@@ -51,6 +51,8 @@ const STREAM_STALL_MESSAGE =
 const TUNE_ERROR_MESSAGE =
   'This channel could not be tuned. The provider may be offline or the connection limit was reached.'
 const DROP_ERROR_MESSAGE = 'This stream dropped. Check your connection and retry.'
+const UNPLAYABLE_MESSAGE =
+  'This stream could not be played. Retry, or pick a different version or quality.'
 /**
  * Warnings that are only true while nothing is playing. Real playback clears them,
  * so a channel that recovered never keeps a blocking card over a live picture.
@@ -443,17 +445,25 @@ export function Player({
     const onError = () => {
       // Ignore the empty-src blip while a source is being torn down.
       if (!video.currentSrc && !video.getAttribute('src')) return
-      if (video.error?.code === 1 || video.error?.code === 0) return
-      // A dropped connection is worth one silent resume before we bother the viewer.
-      if (!isLive && autoRetries.current < 1) {
+      const code = video.error?.code
+      if (code === 1 || code === 0) return
+      // A source the browser refuses to decode will refuse again one second
+      // later. Silently reloading it left a black player with no way out — the
+      // viewer saw nothing happen and never got the Retry panel.
+      const fatal = code === 3 || code === 4
+      // A dropped connection, on the other hand, is worth one silent resume.
+      if (!fatal && !isLive && autoRetries.current < 1) {
         autoRetries.current += 1
         resumeAfterRecovery.current = video.currentTime
         setReloadKey((key) => key + 1)
         return
       }
       setBuffering(false)
-      setError(DROP_ERROR_MESSAGE)
+      setError(fatal ? UNPLAYABLE_MESSAGE : DROP_ERROR_MESSAGE)
     }
+    // An error can land before this listener exists (the source is attached in
+    // the effect above), which used to leave the screen black and silent.
+    if (video.error && video.error.code >= 2) queueMicrotask(onError)
     const onEnded = () => {
       if (isLive) {
         // A channel's segment buffer can run dry; that is not the end of the film.
@@ -487,6 +497,7 @@ export function Player({
     video.addEventListener('waiting', onWaiting)
     video.addEventListener('playing', onPlaying)
     video.addEventListener('error', onError)
+
     video.addEventListener('canplay', () => setBuffering(false))
     video.addEventListener('ended', onEnded)
     video.addEventListener('volumechange', onVolume)
