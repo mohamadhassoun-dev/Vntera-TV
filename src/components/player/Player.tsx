@@ -7,6 +7,7 @@ import { AudioOnlyAds } from './AudioOnlyAds'
 import { detectNetworkSpeed, slowNetworkCap } from '../../lib/editions'
 import { formatTimecode } from '../../lib/format'
 import { canCastVideo, isNativeShell, startCast } from '../../lib/platform'
+import { pictureTurned } from '../../lib/playerLayout'
 import { trackAxis, trackRatio } from '../../lib/seek'
 import { useWakeLock } from '../../lib/hooks'
 import { useSettings } from '../../store/settings'
@@ -608,7 +609,7 @@ export function Player({
 
   const expanded = cinema || fullscreen
   /** Whether the cinema surface turns the picture ninety degrees. */
-  const rotated = cinema && (turnOverride ?? portrait)
+  const rotated = pictureTurned(cinema, turnOverride, portrait)
 
   const toggleFullscreen = useCallback(async () => {
     const node = containerRef.current
@@ -651,7 +652,7 @@ export function Player({
    */
   const toggleRotation = useCallback(() => {
     setCinema(true)
-    setTurnOverride(!(cinema && (turnOverride ?? portrait)))
+    setTurnOverride(!pictureTurned(cinema, turnOverride, portrait))
     reveal()
   }, [cinema, portrait, turnOverride, reveal])
 
