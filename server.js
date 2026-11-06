@@ -16,11 +16,21 @@
  *   ALLOWED_HOSTS   comma-separated host:port list the proxy may reach
  */
 
+import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createAppServer } from './app.js'
+import { createAppServer } from './server/app.js'
 
 const HERE = resolve(fileURLToPath(new URL('.', import.meta.url)))
+
+/** The built site: `dist/` beside this file, or — on hosts whose deployer
+ *  publishes the build output next to the app — this very directory. */
+function siteRoot() {
+  for (const candidate of [resolve(HERE, 'dist'), HERE]) {
+    if (existsSync(resolve(candidate, 'index.html'))) return candidate
+  }
+  return resolve(HERE, 'dist')
+}
 const PORT = Number(process.env.PORT) || 3000
 
 const PANEL_ORIGIN = (process.env.PANEL_ORIGIN || 'http://ontvflix.cc:8080').replace(/\/+$/, '')
@@ -34,7 +44,7 @@ function log(...args) {
 }
 
 const { server, dist } = createAppServer({
-  dist: resolve(HERE, 'dist'),
+  dist: siteRoot(),
   panelOrigin: PANEL_ORIGIN,
   allowedHosts: ALLOWED_HOSTS,
   log,

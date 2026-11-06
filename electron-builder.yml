@@ -19,6 +19,11 @@ files:
   - '!**/*.map'
   - '!**/downloads/**'
 
+# The packaged app boots the Electron shell, while package.json's "main" points
+# at the production server so the web host's deployer runs the site.
+extraMetadata:
+  main: desktop/main.mjs
+
 # Nothing here is a native module, so skip the rebuild pass.
 npmRebuild: false
 
