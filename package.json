@@ -1,7 +1,7 @@
 {
   "name": "vntera-iptv",
   "private": true,
-  "version": "1.1.21",
+  "version": "1.1.22",
   "type": "module",
   "description": "Vntera TV — IPTV streaming for web, Android, Android TV and Windows",
   "scripts": {

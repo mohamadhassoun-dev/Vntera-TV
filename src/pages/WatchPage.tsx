@@ -124,12 +124,18 @@ export default function WatchPage() {
     return pickEdition(editions, settings.quality, detectNetworkSpeed(settings.dataSaver))
   }, [editions, editionParam, kind, liveTry, liveOrder, settings.quality, settings.dataSaver])
 
-  /** Every rendition of this entry failed: try the channel's next panel entry. */
+  /**
+   * Every rendition of this entry failed: try the channel's next panel entry.
+   *
+   * Two spare entries are enough to find the one that still plays; walking the
+   * whole list would keep a channel that is down upstream on "Tuning" for
+   * minutes instead of saying so.
+   */
   const tryAnotherLiveEntry = useCallback(() => {
     if (kind !== 'live' || editionParam) return false
     const order = liveOrderRef.current
     const next = liveTryRef.current + 1
-    if (!order[next]) return false
+    if (!order[next] || next > 2) return false
     liveTryRef.current = next
     setLiveTry(next)
     return true

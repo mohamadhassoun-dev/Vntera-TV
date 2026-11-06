@@ -149,6 +149,8 @@ export function Player({
   const liveRetunes = useRef(0)
   /** Automatic retunes of a live channel that never produced a frame, and after a stall. */
   const tuneRetries = useRef(0)
+  /** When the current live attempt started, to tell a refusal from a slow tune. */
+  const tuneStartedAt = useRef(0)
   const stallRetunes = useRef(0)
   const retuneTimer = useRef<number | null>(null)
 
@@ -272,12 +274,20 @@ export function Player({
     [srcAlt],
   )
 
-  /** A live tune that failed before its first frame retries before the error card. */
+  /**
+   * A live tune that failed before its first frame retries before the error card.
+   *
+   * A panel that answers 503 does it in a few hundred milliseconds, and waiting
+   * the full eight seconds for a source that never opened is what left a dead
+   * channel spinning on "Tuning" for a minute. An immediate failure retries on
+   * the short ladder; a tune that ran for a while still gets the full one.
+   */
   const retryFailedTune = useCallback(() => {
     const delay = LIVE_TUNE_RETRY_DELAYS[tuneRetries.current]
     if (!isLive || delay === undefined) return false
+    const failedFast = performance.now() - tuneStartedAt.current < 2_000
     tuneRetries.current += 1
-    retuneLive(delay)
+    retuneLive(failedFast ? Math.min(delay, 700) : delay)
     return true
   }, [isLive, retuneLive])
 
@@ -285,6 +295,7 @@ export function Player({
   useEffect(() => {
     const video = videoRef.current
     if (!video || !src) return
+    tuneStartedAt.current = performance.now()
     setError(null)
     setBuffering(true)
     setEnded(false)
