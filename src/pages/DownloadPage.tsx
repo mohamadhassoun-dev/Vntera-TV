@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Icon, type IconName } from '../components/Icons'
 import { VERSION, release, type Platform } from '../lib/release'
@@ -42,6 +42,13 @@ export default function DownloadPage() {
   const [active, setActive] = useState<Platform>(
     initial === 'tv' || initial === 'desktop' || initial === 'phone' ? initial : 'phone',
   )
+  // The QR codes and the footer links arrive as ?platform=tv / ?platform=desktop
+  // while this page is already mounted, so the tab has to follow the address
+  // rather than only reading it once on the way in. That one read was why the TV
+  // and Windows codes opened the phone build.
+  useEffect(() => {
+    if (initial === 'tv' || initial === 'desktop' || initial === 'phone') setActive(initial)
+  }, [initial])
   const current = release(active)
 
   return (
