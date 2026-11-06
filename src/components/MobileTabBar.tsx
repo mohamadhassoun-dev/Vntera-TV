@@ -7,6 +7,7 @@ const TABS: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/live', label: 'Live TV', icon: 'tv' },
   { to: '/search', label: 'Search', icon: 'search' },
   { to: '/my-list', label: 'My List', icon: 'heart' },
+  { to: '/downloads', label: 'Downloads', icon: 'download' },
   { to: '/profile', label: 'Profile', icon: 'user' },
 ]
 
@@ -50,7 +51,10 @@ export function MobileTabBar() {
           <Icon name={active.icon} size={24} />
         </span>
 
-        <div className="relative grid h-full grid-cols-5">
+        <div
+          className="relative grid h-full"
+          style={{ gridTemplateColumns: `repeat(${TABS.length}, minmax(0, 1fr))` }}
+        >
           {TABS.map((item) => (
             <NavLink
               key={item.to}

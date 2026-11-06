@@ -8,9 +8,27 @@ import { useCatalog } from './store/catalog'
 import { useEpg } from './store/epg'
 import { useLibrary } from './store/library'
 
-// Dev-only store handles for QA in the browser console.
-if (import.meta.env.DEV) {
+// Store handles for QA in the browser console. Off by default in a release
+// build: `localStorage.setItem('vntera:qa', '1')` opts in for a manual check of
+// the offline queue (the automated preview uses the same switch).
+const qaEnabled = import.meta.env.DEV || (() => {
+  try {
+    return localStorage.getItem('vntera:qa') === '1'
+  } catch {
+    return false
+  }
+})()
+if (qaEnabled) {
   ;(window as unknown as Record<string, unknown>).__vntera = { useAuth, useCatalog, useEpg, useLibrary }
+}
+
+// The installed web app can boot with no network, which is what makes a
+// downloaded title playable after the tab was closed. Android uses its own
+// native shell instead.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => undefined)
+  })
 }
 
 const root = document.getElementById('root')

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Player, type EditionOption } from '../components/player/Player'
 import { IntroPreroll } from '../components/player/IntroPreroll'
@@ -8,6 +8,7 @@ import { useLibrary } from '../store/library'
 import { useEpg } from '../store/epg'
 import { useSettings } from '../store/settings'
 import { streamUrl } from '../lib/xtream'
+import { useOffline } from '../store/offline'
 import { detectNetworkSpeed, lowerEdition, pickEdition } from '../lib/editions'
 import { uniqueEditions } from '../lib/normalize'
 import { nowPlaying } from '../lib/epg'
@@ -31,6 +32,9 @@ export default function WatchPage() {
 
   const loadSeries = useDetails((s) => s.loadSeries)
   const seriesInfo = useDetails((s) => s.series[numericId])
+
+  const offlineJobs = useOffline((s) => s.jobs)
+  const setOfflinePlayback = useOffline((s) => s.setPlayback)
 
   // Movies and series open with the brand sting; live channels tune straight in.
   const [introDone, setIntroDone] = useState(kind === 'live')
@@ -107,6 +111,43 @@ export default function WatchPage() {
     return streamUrl('live', streamId, { liveFormat: 'm3u8' })
   }, [kind, streamId])
 
+  // A finished download for exactly this edition plays from the device; the
+  // network is not touched at all, which is what makes it work with it off.
+  // The Downloads page names the job explicitly, so a finished edition is used
+  // even when another quality would have been picked for this session.
+  const localParam = params.get('local')
+  const offlineCopy = useMemo(() => {
+    if (kind === 'live') return undefined
+    const named = localParam ? offlineJobs.find((job) => job.id === localParam) : undefined
+    if (named && named.state === 'completed') return named
+    return offlineJobs.find(
+      (job) =>
+        job.state === 'completed' &&
+        !job.lookahead &&
+        job.streamId === streamId &&
+        job.titleId === numericId,
+    )
+  }, [offlineJobs, kind, streamId, numericId, localParam])
+  const [localSrc, setLocalSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!offlineCopy) {
+      setLocalSrc(null)
+      return
+    }
+    let alive = true
+    void useOffline
+      .getState()
+      .localUrl(offlineCopy)
+      .then((url) => {
+        if (alive) setLocalSrc(url)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [offlineCopy])
+
   const ensureEpg = useEpg((s) => s.ensure)
   const epg = useEpg((s) => (title ? s.cache[title.epgChannelId || String(title.id)]?.programmes ?? EMPTY_PROGRAMMES : EMPTY_PROGRAMMES))
 
@@ -180,6 +221,40 @@ export default function WatchPage() {
       ? `${title?.categoryName ?? ''}${title?.num ? ` · CH ${String(title.num).padStart(3, '0')}` : ''}`
       : ''
 
+  // While a video is playing the queue is parked; a real pause starts a bounded
+  // look-ahead so resuming after a slow patch does not refetch the opening.
+  const hasPlayed = useRef(false)
+  const handlePlayState = useCallback(
+    (playing: boolean) => {
+      setOfflinePlayback(playing)
+      if (playing) {
+        hasPlayed.current = true
+        return
+      }
+      if (!hasPlayed.current || kind === 'live' || !title) return
+      void useOffline.getState().addLookahead({
+        titleId: title.id,
+        kind: kind === 'series' ? 'series' : 'movie',
+        streamId,
+        title: title.name,
+        subtitle,
+        poster: image,
+        season: kind === 'series' ? season : undefined,
+        episode: kind === 'series' ? episode : undefined,
+        url: src,
+        mime: container ? `video/${container}` : 'video/mp4',
+      })
+    },
+    [setOfflinePlayback, kind, title, streamId, subtitle, image, season, episode, src, container],
+  )
+
+  useEffect(() => {
+    return () => {
+      setOfflinePlayback(false)
+      void useOffline.getState().dropLookahead(title?.id)
+    }
+  }, [setOfflinePlayback, title?.id])
+
   if (!title || !src) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
@@ -195,8 +270,8 @@ export default function WatchPage() {
       {/* The film buffers underneath the brand sting, muted, so the sting never
           costs the viewer a second download when it ends. */}
       <Player
-        src={src}
-        srcAlt={altSrc}
+        src={localSrc ?? src}
+        srcAlt={localSrc ? undefined : altSrc}
         title={title.name}
         subtitle={subtitle}
         poster={image}
@@ -217,8 +292,9 @@ export default function WatchPage() {
         onProgress={handleProgress}
         editions={settings.quality === 'auto' ? editionOptions : editionOptions}
         liveProgramme={liveNow ? { title: liveNow.title, start: liveNow.start, end: liveNow.end } : undefined}
-        onStall={kind === 'live' ? undefined : dropToOneLighterEdition}
+        onStall={kind === 'live' || localSrc ? undefined : dropToOneLighterEdition}
         muted={!introDone}
+        onPlayingChange={handlePlayState}
       />
       {!introDone ? <IntroPreroll title={title.name} onDone={() => setIntroDone(true)} /> : null}
     </div>

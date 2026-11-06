@@ -43,6 +43,8 @@ interface PlayerProps {
   startMuted?: boolean
   /** The sting has finished: reveal the picture and restore sound. */
   muted?: boolean
+  /** Reports real playback, so the download queue can yield to the stream. */
+  onPlayingChange?: (playing: boolean) => void
 }
 
 interface TrackOption {
@@ -108,6 +110,7 @@ export function Player({
   liveProgramme,
   onStall,
   muted: externallyMuted,
+  onPlayingChange,
 }: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -133,6 +136,11 @@ export function Player({
 
   const settings = useSettings()
   const [playing, setPlaying] = useState(false)
+
+  // Playback has priority over every background transfer.
+  useEffect(() => {
+    onPlayingChange?.(playing)
+  }, [playing, onPlayingChange])
   const [buffering, setBuffering] = useState(true)
   /** Buffering is taking long enough that the viewer deserves a hint. */
   const [slowBuffer, setSlowBuffer] = useState(false)

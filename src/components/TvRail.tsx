@@ -10,6 +10,7 @@ export const RAIL_NAV: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/movies', label: 'Movies', icon: 'grid' },
   { to: '/new', label: 'New & Popular', icon: 'sparkles' },
   { to: '/my-list', label: 'My List', icon: 'heart' },
+  { to: '/downloads', label: 'Downloads', icon: 'download' },
 ]
 
 function RailLink({ to, label, icon }: { to: string; label: string; icon: IconName }) {

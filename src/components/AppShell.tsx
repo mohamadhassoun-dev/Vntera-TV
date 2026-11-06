@@ -20,6 +20,7 @@ const NAV: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/movies', label: 'Movies', icon: 'grid' },
   { to: '/new', label: 'New & Popular', icon: 'sparkles' },
   { to: '/my-list', label: 'My List', icon: 'heart' },
+  { to: '/downloads', label: 'Downloads', icon: 'download' },
   { to: '/profile', label: 'Profile', icon: 'user' },
 ]
 

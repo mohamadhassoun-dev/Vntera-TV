@@ -5,7 +5,9 @@ import { Icon } from '../components/Icons'
 import { EmptyState } from '../components/Feedback'
 import { LiveBadge, QualityBadge, RatingBadge } from '../components/Badges'
 import { PosterRail } from '../components/Rails'
+import { DownloadButton } from '../components/DownloadButton'
 import { Select } from '../components/Select'
+import { streamUrl } from '../lib/xtream'
 import { useCatalog } from '../store/catalog'
 import { useDetails } from '../store/details'
 import { useLibrary } from '../store/library'
@@ -248,6 +250,19 @@ export default function DetailsPage() {
                     {title.kind === 'series' && seriesProgress ? `Resume S${seriesProgress.season} E${seriesProgress.episode}` : 'Play'}
                   </button>
                 )}
+                {title.kind === 'movie' ? (
+                  <DownloadButton
+                    target={{
+                      titleId: title.id,
+                      kind: 'movie',
+                      streamId: activeEdition.streamId,
+                      title: title.name,
+                      poster: title.poster,
+                      url: streamUrl('movie', activeEdition.streamId, { container: activeEdition.container }),
+                      mime: `video/${activeEdition.container || 'mp4'}`,
+                    }}
+                  />
+                ) : null}
                 {title.trailer ? (
                   <a
                     href={title.trailer}
@@ -444,6 +459,21 @@ export default function DetailsPage() {
                               ) : isWatched ? (
                                 <span className="badge border-live/50 text-live">WATCHED</span>
                               ) : null}
+                              <DownloadButton
+                                compact
+                                target={{
+                                  titleId: title.id,
+                                  kind: 'series',
+                                  streamId: Number(ep.id),
+                                  title: title.name,
+                                  subtitle: `S${season} E${epNum}${ep.title ? ` · ${ep.title}` : ''}`,
+                                  poster: ep.info?.movie_image || title.poster,
+                                  season,
+                                  episode: epNum,
+                                  url: streamUrl('series', Number(ep.id), { container: ep.container_extension }),
+                                  mime: `video/${ep.container_extension || 'mp4'}`,
+                                }}
+                              />
                               <button
                                 className="icon-btn !h-8 !w-8"
                                 onClick={() => play({ season, episode: epNum })}

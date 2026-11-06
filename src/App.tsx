@@ -4,6 +4,8 @@ import { AppShell } from './components/AppShell'
 import { PageSkeleton } from './components/Skeleton'
 import { SPLASH_MAX_MS, Splash } from './components/Splash'
 import { applyFormFactor, detectFormFactor, installSpatialNavigation } from './lib/platform'
+import { nativeOffline } from './lib/offline/native'
+import { useOffline } from './store/offline'
 import { REFRESH_INTERVAL_MS } from './lib/config'
 import { useAuth } from './store/auth'
 import { useCatalog } from './store/catalog'
@@ -22,6 +24,7 @@ const SearchPage = lazy(() => import('./pages/SearchPage'))
 const CollectionPage = lazy(() => import('./pages/CollectionPage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
+const DownloadsPage = lazy(() => import('./pages/DownloadsPage'))
 
 function Protected({ children }: { children: React.ReactNode }) {
   const status = useAuth((s) => s.status)
@@ -81,6 +84,35 @@ export default function App() {
     }, REFRESH_INTERVAL_MS)
     return () => window.clearInterval(id)
   }, [session, loadCatalog])
+
+  // Offline queue: hydrated once, then it keeps itself in step with the native
+  // Android service or, on the web, with IndexedDB.
+  const initOffline = useOffline((s) => s.init)
+  useEffect(() => {
+    void initOffline()
+  }, [initOffline])
+
+  // A tap on the download notification opens the Downloads page, whether the
+  // app was running or had been closed.
+  useEffect(() => {
+    const bridge = nativeOffline()
+    if (!bridge) return
+    let disposed = false
+    let listener: { remove: () => Promise<void> } | undefined
+    void bridge.initialRoute().then(({ route }) => {
+      if (!disposed && route) navigate(route)
+    })
+    void bridge
+      .addListener('openRoute', ({ route }) => navigate(route))
+      .then((handle) => {
+        if (disposed) void handle.remove()
+        else listener = handle
+      })
+    return () => {
+      disposed = true
+      void listener?.remove()
+    }
+  }, [navigate])
 
   useEffect(() => {
     const uninstall = installSpatialNavigation({
@@ -142,6 +174,7 @@ export default function App() {
                     <Route path="/series" element={<SeriesPage />} />
                     <Route path="/new" element={<NewPopularPage />} />
                     <Route path="/my-list" element={<MyListPage />} />
+                    <Route path="/downloads" element={<DownloadsPage />} />
                     <Route path="/title/:kind/:id" element={<DetailsPage />} />
                     <Route path="/search" element={<SearchPage />} />
                     <Route path="/collection/:slug" element={<CollectionPage />} />

@@ -1,5 +1,6 @@
 package com.vntera.iptv;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.webkit.WebView;
 
@@ -8,6 +9,8 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
+
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Phone shell behaviour.
@@ -20,13 +23,60 @@ import com.getcapacitor.BridgeActivity;
  *
  * The system back gesture/button walks the web history one step at a time, and
  * only leaves the app when there is nowhere left to go inside it.
+ *
+ * A tap on a download notification is also handled here: its `route` extra is
+ * handed to the web app, so the shade opens the Downloads page rather than the
+ * home screen.
  */
 public class MainActivity extends BridgeActivity {
 
+    public interface RouteListener {
+        void onRoute(String route);
+    }
+
+    private static final CopyOnWriteArrayList<RouteListener> ROUTE_LISTENERS = new CopyOnWriteArrayList<>();
+    private static volatile String pendingRoute = null;
+
+    public static void addRouteListener(RouteListener listener) {
+        if (!ROUTE_LISTENERS.contains(listener)) ROUTE_LISTENERS.add(listener);
+    }
+
+    public static void removeRouteListener(RouteListener listener) {
+        ROUTE_LISTENERS.remove(listener);
+    }
+
+    /** Read once by the plugin when the web app boots. */
+    public static String consumePendingRoute() {
+        String route = pendingRoute;
+        pendingRoute = null;
+        return route;
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(OfflineDownloadsPlugin.class);
         super.onCreate(savedInstanceState);
+        DownloadForegroundService.createChannels(this);
         applyImmersiveMode();
+        handleRoute(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleRoute(intent);
+    }
+
+    private void handleRoute(Intent intent) {
+        if (intent == null) return;
+        String route = intent.getStringExtra("route");
+        if (route == null || route.isEmpty()) return;
+        intent.removeExtra("route");
+        pendingRoute = route;
+        for (RouteListener listener : ROUTE_LISTENERS) {
+            listener.onRoute(route);
+        }
     }
 
     @Override
