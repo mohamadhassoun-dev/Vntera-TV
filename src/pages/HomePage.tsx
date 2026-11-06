@@ -79,13 +79,16 @@ export function computeHomeRows(
   weekIndex: number,
   rotationIndex: number,
   heroIds: readonly number[] = [],
+  /** True while the catalogue is still a first slice: the curated bands would
+   *  reserve most of a small pool and leave the rails empty. */
+  partial = false,
 ): HomeRows {
   let byWeek = rowsCache.get(allMovies)
   if (!byWeek) {
     byWeek = new Map()
     rowsCache.set(allMovies, byWeek)
   }
-  const cacheKey = `${weekIndex}:${rotationIndex}:${heroIds.join(',')}`
+  const cacheKey = `${weekIndex}:${rotationIndex}:${heroIds.join(',')}:${partial ? 'partial' : 'full'}`
   const cached = byWeek.get(cacheKey)
   if (cached) return cached
 
@@ -125,17 +128,19 @@ export function computeHomeRows(
   reserveTitles(usage, hero)
   // The horror carousel is its own line-up, so it is reserved before the rotating
   // rails fill up: the same poster must not appear twice down the page.
-  const horror = pickHorrorTitles(movies)
-  reserveTitles(usage, horror)
+  // A partial catalogue is a first screen, not the finished page: the curated
+  // bands would reserve most of a few hundred titles and leave every rail empty.
+  const horror = partial ? [] : pickHorrorTitles(movies)
+  if (!partial) reserveTitles(usage, horror)
   // The Action and Drama bands are curated line-ups too, so they are reserved
   // before the rotating rails fill up: no poster should appear twice.
   // A band is a wall of posters, so it only draws from titles that have one.
-  const bandPool = movies.filter((movie) => movie.hasArtwork)
+  const bandPool = partial ? [] : movies.filter((movie) => movie.hasArtwork)
   // Three spare titles let a band drop a broken poster and still show 24.
   const action = pickBandTitles(bandPool, BANDS.action, 27)
-  reserveTitles(usage, action)
+  if (!partial) reserveTitles(usage, action)
   const drama = pickBandTitles(bandPool, BANDS.drama, 27)
-  reserveTitles(usage, drama)
+  if (!partial) reserveTitles(usage, drama)
   const topTen = take(movies, 'top-ten', TOP_TEN_COUNT)
   const brands = BRAND_RAIL_ORDER.map((brand) => {
     const titles = take(
@@ -229,8 +234,8 @@ export default function HomePage() {
   }, [heroIds, heroPool.length, rotationIndex, recordHero, restartHero])
 
   const rows = useMemo(
-    () => computeHomeRows(movies, weekIndex, rotationIndex, heroIds),
-    [movies, weekIndex, rotationIndex, heroIds],
+    () => computeHomeRows(movies, weekIndex, rotationIndex, heroIds, catalogProgress < 100),
+    [movies, weekIndex, rotationIndex, heroIds, catalogProgress],
   )
   // Live music channels, cached per catalogue so back navigation stays instant.
   const music = useMemo(() => (snapshot ? musicChannelTitles(snapshot.channels) : []), [snapshot])
@@ -240,7 +245,14 @@ export default function HomePage() {
     [snapshot],
   )
 
-  const heroSlides = rows.hero
+  // The first category to arrive may carry no 8.0-rated title yet, which used to
+  // mean a skeleton page even though thousands of movies were already loaded.
+  // Fall back to the strongest rail so the page is usable while the rest lands.
+  const heroSlides = rows.hero.length
+    ? rows.hero
+    : rows.blockbusters.length
+      ? rows.blockbusters
+      : rows.topTen
   const hero = heroSlides[heroIndex % Math.max(heroSlides.length, 1)]
   const heroInList = useLibrary((s) =>
     hero ? s.isInList(hero.kind === 'live' ? 'live' : hero.kind, hero.id) : false,

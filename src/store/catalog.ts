@@ -88,7 +88,9 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
             categories: catArg,
             counts: { channels: live.length, movies: vod.length, series: seriesRaw.length },
           }
-          set({ snapshot, status: 'ready', progress, error: null, offline: false })
+          // Sections land out of order (live first, starter movies next), so a
+          // late, smaller section must never walk the progress bar backwards.
+          set({ snapshot, status: 'ready', progress: Math.max(progress, get().progress), error: null, offline: false })
           return snapshot
         }
 
@@ -98,13 +100,55 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
           publish(35)
           set({ phase: `Live ready · ${r.length.toLocaleString()} channels` })
         })
-        const vodTask = getMovies().then((r) => {
+        // The full 46k-title pull takes about half a minute on this panel, and
+        // the home page used to stay empty until it landed. A few categories are
+        // a few hundred kilobytes, so ask for those first and paint titles while
+        // the rest arrives; the full list replaces them when it finishes.
+        const starterIds = catArg.vod.slice(0, 4).map((c) => String(c.category_id))
+        const starterTask = (async () => {
+          const seen = new Map<number, RawVodStream>()
+          let pendingPublish = 0
+          const announce = (final = false) => {
+            // One tiny category is not a home page: a rail needs enough titles
+            // to fill itself, so wait for a few hundred before the first paint.
+            if (!final && seen.size < 300) return
+            // Coalesce the categories that land together into one render.
+            if (pendingPublish) return
+            pendingPublish = window.setTimeout(() => {
+              pendingPublish = 0
+              // The complete list wins the race: never replace a finished
+              // catalogue with this smaller slice.
+              if (!seen.size || vod.length) return
+              vod = [...seen.values()]
+              movies = buildCatalog({ account, live: [], vod, seriesRaw: [], categories: catArg }).movies
+              publish(45)
+              set({ phase: `Showing ${vod.length.toLocaleString()} titles` })
+            }, 120)
+          }
+          await Promise.all(
+            starterIds.map(async (id) => {
+              const list = await getMovies(id).catch(() => [] as RawVodStream[])
+              if (vod.length) return
+              for (const item of list) seen.set(Number(item.stream_id), item)
+              announce()
+            }),
+          )
+          announce(true)
+        })()
+        // The big pulls wait for the starter (or six seconds): they otherwise
+        // take every connection and the first titles arrive as slowly as the
+        // whole library. The cap keeps a slow category from holding them back.
+        const starterSettled = Promise.race([
+          starterTask,
+          new Promise<void>((resolve) => window.setTimeout(resolve, 6000)),
+        ])
+        const vodTask = starterSettled.then(() => getMovies()).then((r) => {
           vod = r
           movies = buildCatalog({ account, live: [], vod: r, seriesRaw: [], categories: catArg }).movies
           publish(70)
           set({ phase: `Movies ready · ${r.length.toLocaleString()} titles` })
         })
-        const seriesTask = getSeries().then((r) => {
+        const seriesTask = starterSettled.then(() => getSeries()).then((r) => {
           seriesRaw = r
           series = buildCatalog({ account, live: [], vod: [], seriesRaw: r, categories: catArg }).series
           publish(88)

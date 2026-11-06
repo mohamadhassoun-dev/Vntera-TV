@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { PageSkeleton } from './components/Skeleton'
-import { SPLASH_MAX_MS, Splash } from './components/Splash'
+import { Splash } from './components/Splash'
 import { applyFormFactor, detectFormFactor, installSpatialNavigation } from './lib/platform'
 import { nativeOffline } from './lib/offline/native'
 import { useOffline } from './store/offline'
@@ -42,21 +42,14 @@ export default function App() {
 
   const [formFactor, setFormFactor] = useState(() => detectFormFactor())
   const [booted, setBooted] = useState(false)
-  /** The smiley loader has had its turn; a slow catalogue shows the page itself. */
-  const [splashSpent, setSplashSpent] = useState(false)
-  // The catalogue publishes the live channels first and the movies later, so the
-  // home page is only worth showing once the whole pull has landed.
+
   const catalogProgress = useCatalog((s) => s.progress)
-  const hasCatalog = useCatalog((s) => !!s.snapshot)
 
   useEffect(() => {
     void bootstrap()
     const t = window.setTimeout(() => setBooted(true), 700)
-    // The loader covers the first page pull, never longer than its twenty seconds.
-    const cap = window.setTimeout(() => setSplashSpent(true), SPLASH_MAX_MS)
     return () => {
       window.clearTimeout(t)
-      window.clearTimeout(cap)
     }
   }, [bootstrap])
 
@@ -122,13 +115,10 @@ export default function App() {
     return uninstall
   }, [formFactor, navigate])
 
-  // The smiley covers the boot only: once a catalogue exists — cached, or the
-  // live section the panel publishes first — the shell paints and the pages
-  // fill themselves in. Waiting for the whole 57k-title pull here is what made
-  // a first launch feel like a dead screen for twenty seconds.
-  const catalogPending =
-    (status === 'authed' || status === 'reauth') && !hasCatalog && !splashSpent
-  if (status === 'booting' || !booted || catalogPending) return <Splash progress={catalogProgress} />
+  // The smiley covers the session lookup and nothing else: as soon as the
+  // account is known the shell paints and each page fills itself in. Waiting
+  // for a catalogue here is what made a first launch feel like a dead screen.
+  if (status === 'booting' || !booted) return <Splash progress={catalogProgress} />
 
   // The app download page is public: it is how a phone gets the app in the first place.
   if (location.pathname === '/download') {
