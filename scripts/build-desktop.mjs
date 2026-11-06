@@ -34,6 +34,9 @@ run(process.execPath, [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'bu
 // Installers are published from the website; shipping them inside the app would
 // add tens of megabytes to every download.
 rmSync(join(root, 'dist', 'downloads'), { recursive: true, force: true })
+// The site publishes the installers; the desktop app must not carry a copy of
+// itself and the phone builds inside its own bundle.
+rmSync(join(root, 'dist', 'files'), { recursive: true, force: true })
 
 if (devOnly) {
   const electron = require('electron')

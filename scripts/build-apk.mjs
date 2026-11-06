@@ -73,7 +73,9 @@ function buildWeb(form) {
   // them, or every release ships a copy of itself inside its own bundle.
   for (const dir of [
     join(root, 'dist', 'downloads'),
+    join(root, 'dist', 'files'),
     join(root, 'android', 'app', 'src', 'main', 'assets', 'public', 'downloads'),
+    join(root, 'android', 'app', 'src', 'main', 'assets', 'public', 'files'),
   ]) {
     rmSync(dir, { recursive: true, force: true })
   }

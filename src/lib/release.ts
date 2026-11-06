@@ -91,7 +91,8 @@ export function release(platform: Platform): ReleaseArtifact {
 /** Version baked into the current release installers (kept in step with package.json). */
 export const ANDROID_RELEASE = {
   version: VERSION,
-  // Served from /downloads/ so the SPA route /download is not shadowed by a real directory.
+  // Served from /files/: a real /downloads folder would shadow the offline
+  // library route, which is why the installers no longer live there.
   file: release('phone').file,
   minAndroid: '7.0',
   sizeLabel: release('phone').sizeLabel,

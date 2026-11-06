@@ -37,7 +37,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
   if (url.pathname.startsWith('/xtream')) return
-  if (url.pathname.startsWith('/downloads/')) return
+  if (url.pathname.startsWith('/downloads/') || url.pathname.startsWith('/files/')) return
   if (request.headers.get('range')) return
 
   if (request.mode === 'navigate') {

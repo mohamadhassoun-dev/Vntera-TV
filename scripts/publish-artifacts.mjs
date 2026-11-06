@@ -3,7 +3,7 @@
  *
  *   npm run artifacts
  *
- * Run it after copying installers into public/downloads. The generated JSON is
+ * Run it after copying installers into public/files. The generated JSON is
  * committed, so a plain `npm run build` on the host publishes exactly what is
  * actually there instead of a hand-typed size.
  *
@@ -27,22 +27,22 @@ for (const [key, name] of Object.entries({
   phone: `vntera-${version}.apk`,
   tv: `vntera-tv-${version}.apk`,
 })) {
-  const path = join(root, 'public', 'downloads', name)
-  artifacts[key] = { file: `/downloads/${name}`, bytes: sizeOf(path), available: existsSync(path) }
+  const path = join(root, 'public', 'files', name)
+  artifacts[key] = { file: `/files/${name}`, bytes: sizeOf(path), available: existsSync(path) }
   console.log(`${existsSync(path) ? '✓' : '·'} ${key.padEnd(8)} ${name} ${artifacts[key].bytes || 'missing'}`)
 }
 
 const installer = `Vntera-Setup-${version}.exe`
-const localInstaller = join(root, 'public', 'downloads', installer)
+const localInstaller = join(root, 'public', 'files', installer)
 const builtInstaller = join(root, 'release', installer)
 const bytes = sizeOf(localInstaller) || sizeOf(builtInstaller)
 // The site serves the installer itself whenever a copy is staged in
-// public/downloads — hosting it here is what keeps the desktop download alive
+// public/files — hosting it here is what keeps the desktop download alive
 // when the release channel is unavailable. The GitHub asset stays as the
 // fallback for a build that has not staged the file.
 const staged = sizeOf(localInstaller) > 0
 artifacts.desktop = {
-  file: `/downloads/${installer}`,
+  file: `/files/${installer}`,
   url: `https://github.com/${repo}/releases/download/v${version}/${installer}`,
   selfHosted: staged,
   bytes,

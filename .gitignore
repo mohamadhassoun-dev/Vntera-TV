@@ -20,6 +20,7 @@ release/
 release/desktop/
 # Windows installers are published as GitHub release assets (over the 100 MB git limit)
 public/downloads/*.exe
+public/files/*.exe
 *.blockmap
 
 # build output
