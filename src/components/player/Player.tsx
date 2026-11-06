@@ -675,8 +675,15 @@ export function Player({
     }
     if (document.fullscreenEnabled && node?.requestFullscreen) {
       try {
-        await node.requestFullscreen()
-        if (document.fullscreenElement === node) return
+        // Some hosts (an embedded panel, a WebView whose fullscreen view is
+        // suppressed) leave requestFullscreen() pending forever instead of
+        // rejecting, which used to swallow the tap: nothing happened at all.
+        // Give the platform a moment, then use the in-app surface.
+        const applied = await Promise.race([
+          node.requestFullscreen().then(() => true).catch(() => false),
+          new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), 700)),
+        ])
+        if (applied && document.fullscreenElement === node) return
       } catch {
         /* fall through to the in-app player surface */
       }

@@ -51,7 +51,6 @@ export const PosterCard = memo(function PosterCard({
 }) {
   const inList = useLibrary((s) => s.isInList(title.kind === 'live' ? 'live' : title.kind, title.id))
   const hideDates = useContext(HideDatesContext)
-  const hideCaptions = useContext(HideCaptionsContext)
   // Artwork that cannot load removes the card instead of showing a placeholder.
   const [artFailed, setArtFailed] = useState(false)
   if (artFailed) return null
@@ -103,13 +102,6 @@ export const PosterCard = memo(function PosterCard({
         </div>
       </div>
       {progress ? <ProgressBar value={pct(progress.progress, progress.duration)} /> : null}
-      {hideCaptions ? null : (
-        <div className="p-2">
-          <p className="truncate text-[13px] font-semibold leading-tight text-white">
-            {hideDates ? stripYear(title.name) : title.name}
-          </p>
-        </div>
-      )}
     </Link>
   )
 })
@@ -234,8 +226,6 @@ export function ProviderLogoCard({ provider }: { provider: Provider | 'imdb' | '
 }
 
 export const NumberedCard = memo(function NumberedCard({ title, rank }: { title: Title; rank: number }) {
-  const hideDates = useContext(HideDatesContext)
-  const hideCaptions = useContext(HideCaptionsContext)
   const [artFailed, setArtFailed] = useState(false)
   if (artFailed) return null
   return (
@@ -254,13 +244,6 @@ export const NumberedCard = memo(function NumberedCard({ title, rank }: { title:
       <div className="numbered-art relative aspect-[2/3] w-[6.2rem] overflow-hidden rounded-[4px] border border-stroke md:w-[7.4rem]">
         <Art src={title.poster} title={title.name} seed={`${title.id}`} onFail={() => setArtFailed(true)} className="h-full w-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-        {hideCaptions ? null : (
-          <div className="absolute inset-x-1 bottom-1">
-            <p className="line-clamp-2 text-[10px] font-semibold leading-tight">
-              {hideDates ? stripYear(title.name) : title.name}
-            </p>
-          </div>
-        )}
         <div className="absolute right-1 top-1">
           <QualityBadge quality={title.quality} />
         </div>
@@ -499,7 +482,7 @@ export const ChannelStoryCard = memo(function ChannelStoryCard({ channel }: { ch
 // -------------------------------- hero -------------------------------------
 
 /** How long each featured movie stays on the billboard. */
-const HERO_SLIDE_MS = 7000
+export const HERO_SLIDE_MS = 7000
 
 export function Hero({
   title,

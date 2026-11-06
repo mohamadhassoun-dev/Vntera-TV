@@ -6,6 +6,7 @@ import { Icon } from './Icons'
 import { SectionHeading } from './Badges'
 import { useCatalog } from '../store/catalog'
 import { matchesQuality } from '../lib/normalize'
+import { matchesGenre } from '../lib/horror'
 import type { Title } from '../types'
 
 type Kind = 'movie' | 'series'
@@ -74,8 +75,13 @@ export function CatalogPage({ kind }: { kind: Kind }) {
   const genres = useMemo(() => {
     const counts = new Map<string, number>()
     for (const t of pool) for (const g of t.genres) if (g) counts.set(g, (counts.get(g) ?? 0) + 1)
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 18).map(([g]) => g)
-  }, [pool])
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 18).map(([g]) => g)
+    // "Horror" is a canonical genre the catalogue resolves itself (curated
+    // line-up plus horror-tagged titles), so it is always offered — and it
+    // stays visible when the page is opened straight from a genre link.
+    const requested = genre !== 'all' && !top.some((g) => g.toLowerCase() === genre.toLowerCase())
+    return requested ? [genre, ...top] : top
+  }, [pool, genre])
 
   const years = useMemo(() => {
     const set = new Set<number>()
@@ -86,7 +92,7 @@ export function CatalogPage({ kind }: { kind: Kind }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     const list = pool.filter((t) => {
-      if (genre !== 'all' && !t.genres.some((g) => g.toLowerCase() === genre.toLowerCase())) return false
+      if (!matchesGenre(t, genre)) return false
       if (year !== 'all' && String(t.year) !== year) return false
       if (!matchesQuality(t, quality)) return false
       if (language !== 'all' && !t.languages.includes(language)) return false

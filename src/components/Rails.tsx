@@ -50,7 +50,10 @@ export function Rail({
   if (tooFew) return null
 
   return (
-    <section className="rail-section min-w-0" style={{ contentVisibility: 'auto', containIntrinsicSize: '320px' }}>
+    <section
+      className="rail-section min-w-0"
+      style={{ contentVisibility: 'auto', containIntrinsicSize: '320px' }}
+    >
       {title ? (
         <SectionHeading
           title={title}

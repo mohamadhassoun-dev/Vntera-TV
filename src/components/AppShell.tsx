@@ -10,6 +10,7 @@ import { useAutoAlerts } from '../lib/alerts'
 import { ANDROID_RELEASE } from '../lib/release'
 import { Icon, type IconName } from './Icons'
 import { MobileTabBar } from './MobileTabBar'
+import { TvRail } from './TvRail'
 import type { FormFactor } from '../lib/platform'
 
 const NAV: Array<{ to: string; label: string; icon: IconName }> = [
@@ -46,6 +47,20 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
   const isTV = formFactor === 'tv'
   const scrolled = useScrolledPast(10)
   const [menuOpen, setMenuOpen] = useState(false)
+  // The television rail folds away once the remote leaves it for the page, and
+  // unfolds again the moment focus lands back on it from the left.
+  const [railCollapsed, setRailCollapsed] = useState(false)
+
+  useEffect(() => {
+    if (!isTV) return
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null
+      if (!target || target === document.body) return
+      setRailCollapsed(!target.closest('.tv-rail'))
+    }
+    document.addEventListener('focusin', onFocusIn)
+    return () => document.removeEventListener('focusin', onFocusIn)
+  }, [isTV])
 
   useEffect(() => {
     window.scrollTo({ top: 0 })
@@ -63,6 +78,95 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [menuOpen])
+
+  // Session and connectivity banners sit under the header on the pointer
+  // layout and above the stage on the television, where there is no header.
+  const banners = (
+    <>
+      {status === 'reauth' ? (
+        <div className="flex items-center justify-between gap-3 bg-crimson-deep/90 px-4 py-2 text-xs md:px-8">
+          <span className="flex items-center gap-2 font-semibold text-white">
+            <Icon name="alert" size={14} /> Vntera rejected this session. Sign in again to keep watching.
+          </span>
+          <Link to="/login" className="rounded-[3px] bg-black/40 px-2.5 py-1 font-bold uppercase tracking-wide text-white" data-nav="true">
+            Re-authenticate
+          </Link>
+        </div>
+      ) : null}
+
+      {(!online || offline) && status !== 'reauth' ? (
+        <div className="flex items-center gap-2 bg-layer-3 px-4 py-1.5 text-[11px] text-ink-soft md:px-8">
+          <Icon name="cloud" size={13} />
+          Offline — showing your cached library.
+        </div>
+      ) : null}
+    </>
+  )
+
+  if (isTV) {
+    return (
+      <div className="min-h-screen bg-canvas">
+        <TvRail collapsed={railCollapsed} />
+        <div className={`tv-stage${railCollapsed ? ' is-collapsed' : ''}`}>
+          {banners}
+          <main className="tv-main min-w-0">{children}</main>
+          <footer className="border-t border-stroke bg-canvas px-4 pb-12 pt-8 md:px-8">
+            <div className="mx-auto flex max-w-6xl flex-col gap-6 md:flex-row md:items-center md:justify-between px-8">
+              <div className="max-w-md">
+                <h2 className="text-[13px] font-extrabold uppercase tracking-widest text-white">Get Vntera on every screen</h2>
+                <p className="mt-1.5 text-[12px] leading-relaxed text-ink-soft">
+                  Version {ANDROID_RELEASE.version} for Android phones, Android TV and Windows —{' '}
+                  the same sign-in, library and watchlist everywhere.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <a
+                    href={ANDROID_RELEASE.file}
+                    download={`vntera-${ANDROID_RELEASE.version}.apk`}
+                    className="btn btn-primary !px-4 !py-2.5 text-[12px] uppercase tracking-wide"
+                    data-nav="true"
+                  >
+                    <Icon name="download" size={16} /> Android APK
+                  </a>
+                  <Link to="/download?platform=tv" className="btn btn-secondary !px-4 !py-2.5 text-[12px]" data-nav="true">
+                    <Icon name="tv" size={15} /> TV build
+                  </Link>
+                  <Link to="/download?platform=desktop" className="btn btn-secondary !px-4 !py-2.5 text-[12px]" data-nav="true">
+                    <Icon name="grid" size={15} /> Windows
+                  </Link>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-ink-mute">
+                <span>© {new Date().getFullYear()} Vntera</span>
+                <span className="font-bold uppercase tracking-wider">Build {ANDROID_RELEASE.version}</span>
+              </div>
+            </div>
+          </footer>
+        </div>
+
+        {/* A transient toast must never take the remote's focus. */}
+        <div
+          data-nav-ignore="true"
+          className="pointer-events-none fixed bottom-8 left-1/2 z-[95] flex w-[min(92vw,28rem)] -translate-x-1/2 flex-col gap-2"
+        >
+          {toasts.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => dismiss(t.id)}
+              className={`pointer-events-auto rounded-[4px] border px-4 py-2.5 text-left text-[13px] shadow-2xl backdrop-blur-md ${
+                t.tone === 'error'
+                  ? 'border-crimson/50 bg-crimson/20 text-white'
+                  : t.tone === 'success'
+                    ? 'border-live/40 bg-live/15 text-white'
+                    : 'border-stroke bg-layer-2/95 text-white'
+              }`}
+            >
+              {t.message}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-canvas pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
@@ -136,23 +240,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
           </div>
         </div>
 
-        {status === 'reauth' ? (
-          <div className="flex items-center justify-between gap-3 bg-crimson-deep/90 px-4 py-2 text-xs md:px-8">
-            <span className="flex items-center gap-2 font-semibold text-white">
-              <Icon name="alert" size={14} /> Vntera rejected this session. Sign in again to keep watching.
-            </span>
-            <Link to="/login" className="rounded-[3px] bg-black/40 px-2.5 py-1 font-bold uppercase tracking-wide text-white" data-nav="true">
-              Re-authenticate
-            </Link>
-          </div>
-        ) : null}
-
-        {(!online || offline) && status !== 'reauth' ? (
-          <div className="flex items-center gap-2 bg-layer-3 px-4 py-1.5 text-[11px] text-ink-soft md:px-8">
-            <Icon name="cloud" size={13} />
-            Offline — showing your cached library.
-          </div>
-        ) : null}
+        {banners}
       </header>
 
       {menuOpen ? (
@@ -246,12 +334,14 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          {/* Wraps instead of pushing the footer past the page edge on tablets,
+              where both QR cards and the copy column compete for the row. */}
+          <div className="flex flex-wrap items-center gap-4">
             <Link
               to="/download"
               data-nav="true"
               aria-label="Scan the QR code to install Vntera on a phone, TV or PC"
-              className="flex items-center gap-3 rounded-[4px] border border-stroke bg-layer-1 p-2.5 pr-4 transition-colors hover:border-white/25"
+              className="flex min-w-0 items-center gap-3 rounded-[4px] border border-stroke bg-layer-1 p-2.5 pr-4 transition-colors hover:border-white/25"
             >
               <img
                 src="/media/qr-phone.png"
@@ -271,7 +361,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
               to="/download?platform=tv"
               data-nav="true"
               aria-label="Scan the QR code for the Android TV build"
-              className="hidden items-center gap-3 rounded-[4px] border border-stroke bg-layer-1 p-2.5 pr-4 transition-colors hover:border-white/25 sm:flex"
+              className="hidden min-w-0 items-center gap-3 rounded-[4px] border border-stroke bg-layer-1 p-2.5 pr-4 transition-colors hover:border-white/25 sm:flex"
             >
               <img
                 src="/media/qr-tv.png"
@@ -298,7 +388,10 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
 
       <MobileTabBar />
 
-      <div className="pointer-events-none fixed bottom-24 left-1/2 z-[95] flex w-[min(92vw,28rem)] -translate-x-1/2 flex-col gap-2 md:bottom-8">
+      <div
+        data-nav-ignore="true"
+        className="pointer-events-none fixed bottom-24 left-1/2 z-[95] flex w-[min(92vw,28rem)] -translate-x-1/2 flex-col gap-2 md:bottom-8"
+      >
         {toasts.map((t) => (
           <button
             key={t.id}

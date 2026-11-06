@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { Fragment, useMemo, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EmptyState } from '../components/Feedback'
 import { PageSkeleton } from '../components/Skeleton'
@@ -10,13 +10,16 @@ import {
   HideDatesContext,
   ProviderLogoCard,
 } from '../components/cards'
+import { TvHero } from '../components/TvHero'
 import { CollectionCard } from '../components/CollectionCard'
 import { ChannelLogoGrid } from '../components/ChannelLogoGrid'
 import { SectionHeading } from '../components/Badges'
 import { ShortcutEditor } from '../components/ShortcutEditor'
 import { ContinueRail, PosterRail, Rail, ShortcutChannelRail, TopTenRail } from '../components/Rails'
+import { HorrorBand } from '../components/HorrorBand'
 import { Icon } from '../components/Icons'
 import { usePullToRefresh } from '../lib/hooks'
+import { detectFormFactor } from '../lib/platform'
 import {
   createArtworkUsage,
   reserveTitles,
@@ -32,6 +35,7 @@ import { collectionTitles } from '../lib/collections'
 import { musicChannelTitles } from '../lib/musicChannels'
 import { arabicChannelFamilies } from '../lib/arabicChannels'
 import { isHiddenFromHome } from '../lib/hidden'
+import { HORROR_IDS } from '../lib/horror'
 import { categoriesWithCounts, useCatalog } from '../store/catalog'
 import { defaultShortcutItems, resolveShortcuts, useShortcuts } from '../store/shortcuts'
 import { useHeroHistory } from '../store/heroHistory'
@@ -48,15 +52,43 @@ const WEEK_SECONDS = 7 * 86_400
 /** IMDb is not a panel category: the row curates the catalog's top-rated movies. */
 const IMDB_MIN_RATING = 6.5
 
+/** Three of those titles also lead their brand row from the third slot, so the
+ *  page shows them where viewers browse and again in the horror row. */
+const BRAND_PINS: Partial<Record<HomeRailBrand, readonly number[]>> = {
+  netflix: HORROR_IDS.slice(0, 3),
+  prime: HORROR_IDS.slice(3),
+}
+
 interface HomeRows {
   hero: Title[]
   topTen: Title[]
   brands: Array<{ brand: HomeRailBrand; titles: Title[] }>
+  horror: Title[]
   kids: Title[]
   anime: Title[]
   blockbusters: Title[]
   fresh: Title[]
   popular: Title[]
+}
+
+/** A brand row keeps its own first two picks, then the pinned line-up in order,
+ *  then the rest of this week's picks with anything already shown above it cut,
+ *  so a pinned title never repeats inside its row. */
+function withPinned(
+  titles: readonly Title[],
+  pinned: readonly number[],
+  byId: ReadonlyMap<number, Title>,
+): Title[] {
+  const head = titles.slice(0, 2)
+  const seen = new Set(head.map((movie) => movie.id))
+  const inserted: Title[] = []
+  for (const id of pinned) {
+    const movie = byId.get(id)
+    if (!movie || seen.has(id)) continue
+    seen.add(id)
+    inserted.push(movie)
+  }
+  return [...head, ...inserted, ...titles.slice(2).filter((movie) => !seen.has(movie.id))]
 }
 
 /** Every rail on the page, for one week, plus the hero line-up chosen for the
@@ -114,15 +146,23 @@ export function computeHomeRows(
     .map((id) => moviesById.get(id))
     .filter((movie): movie is Title => Boolean(movie))
   reserveTitles(usage, hero)
+  // The horror line-up is placed by hand in the brand rows and repeated in its
+  // own carousel, so the rotating rails leave these six alone rather than
+  // surfacing the same poster a third time further down the page.
+  const horror = HORROR_IDS.map((id) => moviesById.get(id)).filter(
+    (movie): movie is Title => Boolean(movie),
+  )
+  reserveTitles(usage, horror)
   const topTen = take(movies, 'top-ten', TOP_TEN_COUNT)
-  const brands = BRAND_RAIL_ORDER.map((brand) => ({
-    brand,
-    titles: take(
+  const brands = BRAND_RAIL_ORDER.map((brand) => {
+    const titles = take(
       brand === 'imdb' ? imdbPool : movies.filter((movie) => movie.provider === brand),
       `provider-${brand}`,
       RAIL_LIMIT,
-    ),
-  }))
+    )
+    const pinned = BRAND_PINS[brand]
+    return { brand, titles: pinned ? withPinned(titles, pinned, moviesById) : titles }
+  })
   // Curated rails for the panel's kids and anime sections, shaped like the
   // provider rails: wordmark card first, then this week's titles.
   const kids = take(collectionTitles(movies, 'kids'), 'kids', RAIL_LIMIT)
@@ -135,7 +175,7 @@ export function computeHomeRows(
   const fresh = selectUniqueNewTitles(recentMovies, trendingMovies, weekIndex, RAIL_LIMIT, usage)
   const popularRail = take(popularPool, 'popular', RAIL_LIMIT)
 
-  const rows: HomeRows = { hero, topTen, brands, kids, anime, blockbusters, fresh, popular: popularRail }
+  const rows: HomeRows = { hero, topTen, brands, horror, kids, anime, blockbusters, fresh, popular: popularRail }
 
   byWeek.set(cacheKey, rows)
   return rows
@@ -158,6 +198,8 @@ export default function HomePage() {
   const setShortcutItems = useShortcuts((s) => s.setItems)
   const resetShortcuts = useShortcuts((s) => s.reset)
   const pull = usePullToRefresh(refresh)
+  // A television gets the ten-foot layout: icon rail, hero with a shortlist.
+  const isTV = useMemo(() => detectFormFactor() === 'tv', [])
 
   // Every rail rolls forward one page per UTC week, so the whole page keeps
   // surfacing new artwork-backed movies instead of freezing on one slice.
@@ -268,7 +310,7 @@ export default function HomePage() {
   return (
     <HideDatesContext.Provider value={true}>
       <HideCaptionsContext.Provider value={true}>
-      <div className="-mt-16 pb-24" {...pull.handlers}>
+      <div className={isTV ? 'pb-24' : '-mt-16 pb-24'} {...pull.handlers}>
         {pull.pull > 4 || pull.refreshing ? (
           <div
             className="fixed left-1/2 top-20 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-stroke bg-layer-1/95 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-soft shadow-xl backdrop-blur"
@@ -282,6 +324,20 @@ export default function HomePage() {
           </div>
         ) : null}
 
+        {isTV ? (
+          <TvHero
+            title={hero}
+            picks={rows.blockbusters.slice(0, 4)}
+            onPlay={() =>
+              navigate(`/watch/${hero.kind}/${hero.id}${hero.kind === 'series' ? '?season=1&episode=1' : ''}`)
+            }
+            inList={heroInList}
+            onToggleList={() => toggleList(hero)}
+            slideCount={heroSlides.length}
+            slideIndex={heroIndex % heroSlides.length}
+            onSlideChange={setHeroIndex}
+          />
+        ) : (
         <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-start lg:gap-4 lg:pr-4">
           <Hero
             title={hero}
@@ -341,9 +397,10 @@ export default function HomePage() {
             </div>
           </aside>
         </div>
+        )}
 
-        <div className="shell-x relative z-20 -mt-10 space-y-8 md:space-y-10">
-          <div className="lg:hidden">
+        <div className={`shell-x relative z-20 space-y-8 md:space-y-10 ${isTV ? 'pt-8' : '-mt-10'}`}>
+          <div className={isTV ? '' : 'lg:hidden'}>
             <ShortcutChannelRail entries={shortcuts} onEdit={() => setEditorOpen(true)} />
           </div>
 
@@ -353,17 +410,20 @@ export default function HomePage() {
 
           {/* Brand, Kids and Anime rows are labelled by their logo card, so they
               carry no heading of their own. */}
-          {rows.brands.map(({ brand, titles }) =>
-            titles.length ? (
-              <PosterRail
-                key={brand}
-                titles={titles}
-                lead={<ProviderLogoCard provider={brand} />}
-                arrows={false}
-                minItems={PROVIDER_MIN_ITEMS}
-              />
-            ) : null,
-          )}
+          {rows.brands.map(({ brand, titles }, index) => (
+            <Fragment key={brand}>
+              {titles.length ? (
+                <PosterRail
+                  titles={titles}
+                  lead={<ProviderLogoCard provider={brand} />}
+                  arrows={false}
+                  minItems={PROVIDER_MIN_ITEMS}
+                />
+              ) : null}
+              {/* The page's only Horror section, right after Netflix and Prime Video. */}
+              {index === 1 && rows.horror.length ? <HorrorBand titles={rows.horror} /> : null}
+            </Fragment>
+          ))}
 
           {rows.kids.length ? (
             <PosterRail titles={rows.kids} lead={<ProviderLogoCard provider="kids" />} arrows={false} />

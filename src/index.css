@@ -806,3 +806,275 @@ html[data-form-factor='tv'] .app-profile-icon {
     filter: blur(1px);
   }
 }
+
+/* ------------------------------------------------------------------
+   Ten-foot home layout.
+   The television swaps the horizontal header for a left icon rail and
+   gives the hero a shortlist column, the way a set-top box presents its
+   landing screen. The palette stays Vntera's: canvas, hairline, crimson.
+   ------------------------------------------------------------------ */
+.tv-stage {
+  padding-left: 5.6rem;
+  transition: padding-left 0.22s ease;
+}
+/* Focus left the rail for the page: it folds down to icons and gives the
+   artwork the width back. Coming back to the left unfolds it again. */
+.tv-stage.is-collapsed {
+  padding-left: 4.1rem;
+}
+
+/* Pages carry top padding for the fixed pointer header; the television has no
+   header, so that reservation becomes a plain page margin. */
+html[data-form-factor='tv'] .tv-main > [class*='pt-16'],
+html[data-form-factor='tv'] .tv-main > [class*='pt-24'] {
+  padding-top: 0.9rem !important;
+}
+
+.tv-rail {
+  position: fixed;
+  inset-block: 0;
+  left: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: 5.6rem;
+  padding: 0.85rem 0.45rem 1rem;
+  background: var(--color-layer-1);
+  border-right: 1px solid var(--color-stroke);
+  overflow-y: auto;
+  scrollbar-width: none;
+  transition: width 0.22s ease;
+}
+.tv-rail.is-collapsed {
+  width: 4.1rem;
+}
+.tv-rail.is-collapsed .tv-rail-label {
+  display: none;
+}
+.tv-rail.is-collapsed .tv-rail-item {
+  padding-block: 0.62rem;
+}
+.tv-rail.is-collapsed .tv-rail-logo img {
+  max-height: 2.2rem;
+}
+.tv-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.tv-rail-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.35rem 0.15rem 0.55rem;
+  border-radius: 8px;
+}
+.tv-rail-logo img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 3.2rem;
+  object-fit: contain;
+}
+
+.tv-rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  width: 100%;
+}
+.tv-rail-foot {
+  margin-top: auto;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--color-stroke);
+}
+
+.tv-rail-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.45rem 0.15rem;
+  border-radius: 8px;
+  color: var(--color-ink-soft);
+  font-size: 0.48rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
+}
+.tv-rail-item:hover {
+  color: #fff;
+  background: var(--color-layer-2);
+}
+.tv-rail-item.is-active {
+  color: #fff;
+  background: rgba(229, 9, 20, 0.16);
+}
+.tv-rail-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: -0.45rem;
+  top: 18%;
+  bottom: 18%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--color-crimson);
+}
+.tv-rail-label {
+  display: block;
+}
+
+/* Featured title on the left, "you might also like this" on the right. */
+.tv-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16rem;
+  gap: 0.9rem;
+  padding: 1.1rem 1.5rem 0;
+}
+.tv-hero-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1rem 0.9rem;
+  border: 1px solid var(--color-stroke);
+  border-radius: 10px;
+  background: var(--color-layer-1);
+}
+.tv-hero-picks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+/* "Horror Movies": one cinematic band. The stage artwork sits behind the two
+   rows of three posters, the heading is a link into the Movies page's Horror
+   genre filter, and the posters run slightly larger than the brand rows. */
+.rail-horror {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(229, 9, 20, 0.24);
+  background:
+    linear-gradient(180deg, rgba(6, 4, 5, 0.42) 0%, rgba(6, 4, 5, 0.7) 100%),
+    url('/images/horror-back.jpg') center / cover no-repeat;
+  padding: 1.05rem 0.85rem 1.2rem;
+}
+@media (min-width: 768px) {
+  .rail-horror {
+    padding: 1.25rem 1.1rem 1.4rem;
+  }
+}
+/* Keeps the stage's red light at the edges while the posters sit on darkness. */
+.rail-horror::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(115% 130% at 50% 38%, transparent 32%, rgba(3, 1, 1, 0.78) 100%);
+  pointer-events: none;
+}
+.horror-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0 0 0.15rem 0.15rem;
+  border-radius: 4px;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #ff2733;
+  text-shadow: 0 0 16px rgba(229, 9, 20, 0.45);
+}
+@media (min-width: 768px) {
+  .horror-heading {
+    font-size: 1.6rem;
+  }
+}
+.horror-heading-arrow {
+  transition: transform 0.2s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .horror-heading:hover {
+    color: #ff5b63;
+  }
+  .horror-heading:hover .horror-heading-arrow {
+    transform: translateX(3px);
+  }
+}
+.horror-rows {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.3rem;
+}
+/* Centred when the three posters fit, left-aligned once they have to scroll. */
+.horror-rail {
+  justify-content: safe center;
+}
+/* 1.12x the brand-row poster at every breakpoint (8.6rem on phones, 10.5rem
+   from 768px, 11.6rem from 1200px, 12rem on a television), same 2:3 shape. */
+.rail-horror .rail > .poster-card {
+  width: 9.632rem;
+  border-radius: 8px;
+  border-color: rgba(229, 9, 20, 0.6);
+}
+.rail-horror .rail > .poster-card > div:first-child {
+  border-radius: 7px;
+}
+@media (min-width: 768px) {
+  .rail-horror .rail > .poster-card {
+    width: 11.76rem;
+  }
+}
+@media (min-width: 1200px) {
+  .rail-horror .rail > .poster-card {
+    width: 12.99rem;
+  }
+}
+html[data-form-factor='tv'] .rail-horror .rail > .poster-card {
+  width: 13.44rem;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rail-horror .rail > .poster-card:hover {
+    position: relative;
+    z-index: 4;
+    border-color: #ff2733;
+    transform: translateY(-2px);
+  }
+}
+html[data-form-factor='tv'] .rail-horror .rail > .poster-card:focus,
+html[data-form-factor='tv'] .rail-horror .rail > .poster-card:focus-visible,
+html[data-form-factor='tv'] .rail-horror .rail > .poster-card.is-focused {
+  border-color: #ff2733;
+  box-shadow: 0 0 0 3px rgba(255, 39, 51, 0.5);
+}
+
+/* The hero shortlist answers the remote the same way a rail does: the card
+   under the D-pad grows and takes the crimson frame. */
+html[data-form-factor='tv'] .tv-hero-picks .poster-card {
+  transition:
+    transform 0.24s cubic-bezier(0.22, 0.7, 0.3, 1),
+    box-shadow 0.24s ease,
+    border-color 0.24s ease;
+}
+html[data-form-factor='tv'] .tv-hero-picks .poster-card:focus,
+html[data-form-factor='tv'] .tv-hero-picks .poster-card:focus-visible,
+html[data-form-factor='tv'] .tv-hero-picks .poster-card.is-focused {
+  position: relative;
+  z-index: 5;
+  transform: scale(1.06);
+  border-color: rgba(229, 9, 20, 0.92);
+  box-shadow:
+    0 0 0 2px rgba(229, 9, 20, 0.45),
+    0 22px 40px -22px rgba(0, 0, 0, 0.95);
+}

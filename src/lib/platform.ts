@@ -95,7 +95,11 @@ function isVisible(el: HTMLElement): boolean {
 }
 
 function focusables(): HTMLElement[] {
-  return Array.from(document.querySelectorAll<HTMLElement>(NAV_SELECTOR)).filter(isVisible)
+  return Array.from(document.querySelectorAll<HTMLElement>(NAV_SELECTOR)).filter(
+    // Floating layers (toasts) sit on top of the page and vanish on their own;
+    // the remote must be able to pass beneath them without stopping.
+    (el) => !el.closest('[data-nav-ignore="true"]') && isVisible(el),
+  )
 }
 
 type Direction = 'up' | 'down' | 'left' | 'right'
