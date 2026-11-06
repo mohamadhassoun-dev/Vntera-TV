@@ -84,25 +84,56 @@ export default function WatchPage() {
     return undefined
   }, [kind, seasons, currentSeason, season, episode])
 
-  // Panel entries can repeat the same quality/language; show and switch each real edition once.
-  const editions = useMemo(() => uniqueEditions(title?.editions ?? []), [title])
+  // Panel entries can repeat the same quality/language; show and switch each real
+  // edition once. Live is the exception: two identical-looking entries there are
+  // separate panel streams for the same channel, and one of them is often dead,
+  // so all of them are kept as tuning candidates (the menu still shows one).
+  const editions = useMemo(
+    () => (kind === 'live' ? (title?.editions ?? []) : uniqueEditions(title?.editions ?? [])),
+    [title, kind],
+  )
 
   // The pinned quality wins; on "auto" a thin connection starts on a lighter
   // edition instead of stalling on the biggest file the panel offers.
-  // A live channel is the exception: its extra "editions" are separate panel
-  // entries for the same channel (one of them often dead), not lighter renditions
-  // of one stream, so the primary entry is always the one worth tuning.
+  /** Live entries tried so far, so a dead duplicate can hand over to one that plays. */
+  const [liveTry, setLiveTry] = useState(0)
+  const liveTryRef = useRef(0)
+  useEffect(() => {
+    liveTryRef.current = 0
+    setLiveTry(0)
+  }, [numericId, kind])
+
+  // A live channel's extra "editions" are duplicate panel entries for the same
+  // channel, not lighter renditions of one stream. The newest provision is the
+  // one to tune first; the rest are backups when that entry has gone dead.
+  const liveOrder = useMemo(
+    () => [...editions].sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0)),
+    [editions],
+  )
+  // The player calls back long after mount, so the callback reads the current
+  // list through a ref instead of a closure the first render captured.
+  const liveOrderRef = useRef(liveOrder)
+  useEffect(() => {
+    liveOrderRef.current = liveOrder
+  }, [liveOrder])
+
   const edition = useMemo(() => {
     const pinned = editions.find((e) => e.streamId === editionParam)
     if (pinned) return pinned
-    if (kind === 'live') {
-      // A live channel's extra "editions" are duplicate panel entries for the
-      // same channel, not lighter renditions of one stream. The old leftovers are
-      // the ones that stop playing, so the newest provision is the one to tune.
-      return [...editions].sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))[0]
-    }
+    if (kind === 'live') return liveOrder[Math.min(liveTry, Math.max(liveOrder.length - 1, 0))]
     return pickEdition(editions, settings.quality, detectNetworkSpeed(settings.dataSaver))
-  }, [editions, editionParam, kind, settings.quality, settings.dataSaver])
+  }, [editions, editionParam, kind, liveTry, liveOrder, settings.quality, settings.dataSaver])
+
+  /** Every rendition of this entry failed: try the channel's next panel entry. */
+  const tryAnotherLiveEntry = useCallback(() => {
+    if (kind !== 'live' || editionParam) return false
+    const order = liveOrderRef.current
+    const next = liveTryRef.current + 1
+    if (!order[next]) return false
+    liveTryRef.current = next
+    setLiveTry(next)
+    return true
+  }, [kind, editionParam])
 
   const streamId =
     kind === 'series' ? Number(currentEpisode?.id ?? 0) : (edition?.streamId ?? title?.id ?? 0)
@@ -301,6 +332,7 @@ export default function WatchPage() {
         editions={settings.quality === 'auto' ? editionOptions : editionOptions}
         liveProgramme={liveNow ? { title: liveNow.title, start: liveNow.start, end: liveNow.end } : undefined}
         onStall={kind === 'live' || localSrc ? undefined : dropToOneLighterEdition}
+        onTuneFail={kind === 'live' && !localSrc ? tryAnotherLiveEntry : undefined}
         muted={!introDone}
         onPlayingChange={handlePlayState}
       />

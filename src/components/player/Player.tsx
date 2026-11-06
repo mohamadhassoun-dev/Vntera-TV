@@ -40,6 +40,11 @@ interface PlayerProps {
   liveProgramme?: { title: string; start: number; end: number }
   /** Called when a VOD stream stalls; return true if a lower edition was picked. */
   onStall?: () => boolean
+  /**
+   * Called when a live channel failed every retry. Return true when another
+   * panel entry for the same channel was switched to, so no error card is shown.
+   */
+  onTuneFail?: () => boolean
   /** Start silent (the brand sting is playing over a preloading picture). */
   startMuted?: boolean
   /** The sting has finished: reveal the picture and restore sound. */
@@ -75,7 +80,7 @@ const LIVE_GIVE_UP_AFTER_MS = 25_000
  * Gaps between automatic retunes of a live channel. Panels answer 503 while they
  * re-allocate a stream to another edge, so an instant error card was wrong there.
  */
-const LIVE_TUNE_RETRY_DELAYS = [1_500, 3_500, 6_500]
+const LIVE_TUNE_RETRY_DELAYS = [1_200, 2_500, 4_000, 6_000, 8_000]
 /** Idle time before the live overlay clears itself, leaving only the picture. */
 const LIVE_HIDE_DELAY_MS = 6_000
 const HIDE_DELAY_MS = 3_600
@@ -115,6 +120,7 @@ export function Player({
   editions,
   liveProgramme,
   onStall,
+  onTuneFail,
   muted: externallyMuted,
   onPlayingChange,
 }: PlayerProps) {
@@ -357,6 +363,9 @@ export function Player({
             }
           }
           if (retryFailedTune()) return
+          // Every rendition failed: a duplicate panel entry for the same channel
+          // may still play, so the page gets a chance to switch to it.
+          if (onTuneFail?.()) return
           setError(TUNE_ERROR_MESSAGE)
           setBuffering(false)
         })
@@ -424,6 +433,7 @@ export function Player({
           // A manifest that 503s / 404s can be back a second later on a panel
           // that moves streams between edges, so retry before blaming the channel.
           if (retryFailedTune()) return
+          if (onTuneFail?.()) return
           setError(
             data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR
               ? 'Stream could not be reached. The provider may be offline or the connection limit was hit.'
@@ -659,6 +669,8 @@ export function Player({
           retuneLive(0)
           return
         }
+        // Last resort for a live channel: another panel entry for it.
+        if (isLive && onTuneFail?.()) return
         setBuffering(false)
         setError((current) => current ?? STREAM_STALL_MESSAGE)
         return
@@ -679,7 +691,7 @@ export function Player({
       }
     }, 2_000)
     return () => window.clearInterval(timer)
-  }, [src, reloadKey, isLive, onStall, retuneLive])
+  }, [src, reloadKey, isLive, onStall, retuneLive, onTuneFail])
 
   useEffect(() => {
     if (!buffering) {

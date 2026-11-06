@@ -25,6 +25,7 @@ const PAGE = 42
 
 /** Genres the app curates itself, so they are always offered. */
 const CANONICAL_GENRES = ['Action', 'Drama', 'Horror'] as const
+const BAND_LIST = Object.values(BANDS)
 
 export function CatalogPage({ kind }: { kind: Kind }) {
   const snapshot = useCatalog((s) => s.snapshot)
@@ -46,57 +47,53 @@ export function CatalogPage({ kind }: { kind: Kind }) {
     if (urlGenre) setGenre(urlGenre)
   }, [urlGenre])
 
-  // Genre options carry a count, merge the panel's own tags with the genres the
-  // app curates itself (Action, Drama, Horror), and always offer the one the
-  // page was opened with so a genre link never lands on an unselectable filter.
-  const genres = useMemo(() => {
+  // Every facet in the header comes out of one pass over the library. Three
+  // separate loops (each allocating a Set per title) over 46k movies was most of
+  // the Movies page's first paint.
+  const facets = useMemo(() => {
     const counts = new Map<string, number>()
-    const add = (name: string) => counts.set(name, (counts.get(name) ?? 0) + 1)
+    const seenLabels: string[] = []
+    const yearSet = new Set<number>()
+    const bump = (label: string) => counts.set(label, (counts.get(label) ?? 0) + 1)
     for (const t of pool) {
-      const seen = new Set<string>()
+      seenLabels.length = 0
       for (const g of t.genres) {
         const label = g.trim()
-        if (!label || seen.has(label.toLowerCase())) continue
-        seen.add(label.toLowerCase())
-        add(label)
+        if (!label) continue
+        const key = label.toLowerCase()
+        if (seenLabels.includes(key)) continue
+        seenLabels.push(key)
+        bump(label)
       }
-      for (const band of Object.values(BANDS)) {
-        if (seen.has(band.genre.toLowerCase())) continue
+      for (const band of BAND_LIST) {
+        const key = band.genre.toLowerCase()
+        if (seenLabels.includes(key)) continue
         if (matchesBandGenre(t, band.genre)) {
-          seen.add(band.genre.toLowerCase())
-          add(band.genre)
+          seenLabels.push(key)
+          bump(band.genre)
         }
       }
+      if (t.year) yearSet.add(t.year)
     }
     for (const name of CANONICAL_GENRES) {
       if (![...counts.keys()].some((key) => key.toLowerCase() === name.toLowerCase())) counts.set(name, 0)
     }
-    const list = [...counts.entries()]
+    return { counts, years: [...yearSet].sort((a, b) => b - a) }
+  }, [pool])
+
+  // Genre options carry a count, and always offer the one the page was opened
+  // with so a genre link never lands on an unselectable filter.
+  const genres = useMemo(() => {
+    const list = [...facets.counts.entries()]
       .filter(([name, count]) => count > 0 || name.toLowerCase() === genre.toLowerCase())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([name]) => name)
     const requested = genre !== 'all' && !list.some((g) => g.toLowerCase() === genre.toLowerCase())
     return requested ? [genre, ...list] : list
-  }, [pool, genre])
+  }, [facets, genre])
 
-  const genreCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const t of pool) {
-      for (const g of t.genres) counts.set(g.trim().toLowerCase(), (counts.get(g.trim().toLowerCase()) ?? 0) + 1)
-    }
-    for (const band of Object.values(BANDS)) {
-      if (counts.has(band.genre.toLowerCase())) continue
-      const total = pool.filter((t) => matchesBandGenre(t, band.genre)).length
-      if (total) counts.set(band.genre.toLowerCase(), total)
-    }
-    return counts
-  }, [pool])
-
-  const years = useMemo(() => {
-    const set = new Set<number>()
-    for (const t of pool) if (t.year) set.add(t.year)
-    return [...set].sort((a, b) => b - a)
-  }, [pool])
+  const genreCounts = facets.counts
+  const years = facets.years
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()

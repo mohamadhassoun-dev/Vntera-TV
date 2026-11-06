@@ -425,20 +425,64 @@ function titleName(title: Title): string {
   return value
 }
 
-/** True when the catalogue's own name is one of the band's known titles. */
+/**
+ * The band's name list, normalised once. The Movies page asks about every one
+ * of ~46k titles on mount, and normalising ~150 needles inside that loop cost
+ * thirteen seconds of main thread; the list never changes, so it is built once.
+ */
+interface BandIndex {
+  /** Every known title, normalised, for whole-word containment lookups. */
+  phrases: Set<string>
+  /** Names like "24" or "007" only ever match the whole title. */
+  numeric: Set<string>
+  /** Longest known title in words, so only real slices are checked. */
+  maxWords: number
+}
+
+const indexCache = new WeakMap<BandDefinition, BandIndex>()
+
+function bandIndex(band: BandDefinition): BandIndex {
+  const cached = indexCache.get(band)
+  if (cached) return cached
+  const phrases = new Set<string>()
+  const numeric = new Set<string>()
+  let maxWords = 1
+  for (const entry of band.names) {
+    const text = normalize(entry)
+    if (!text) continue
+    if (/^\d+$/.test(text)) numeric.add(text)
+    else {
+      phrases.add(text)
+      const words = text.split(' ').length
+      if (words > maxWords) maxWords = words
+    }
+  }
+  const index = { phrases, numeric, maxWords }
+  indexCache.set(band, index)
+  return index
+}
+
+/**
+ * True when the catalogue's own name is one of the band's known titles.
+ *
+ * The answer is sliced out of the title's own words and looked up in a set,
+ * rather than compared against every known title: the Movies page asks this for
+ * 46k titles on mount, and the linear scan cost seconds of main thread.
+ */
 export function matchesBandName(title: Title, band: BandDefinition): boolean {
   const name = titleName(title)
   if (!name) return false
-  return band.names.some((entry) => {
-    const needle = normalize(entry)
-    if (!needle) return false
-    // A numeric name ("24", "007", "2012") only matches on its own: otherwise
-    // any catalogue title ending in "24" would join the band.
-    if (/^\d+$/.test(needle)) return name === needle
-    // Whole-word containment: "John Wick: Chapter 4" matches "john wick",
-    // while "Heat" does not match "The Heat of the Night" by accident.
-    return name === needle || name.startsWith(`${needle} `) || name.includes(` ${needle} `) || name.endsWith(` ${needle}`)
-  })
+  const { phrases, numeric, maxWords } = bandIndex(band)
+  if (numeric.has(name)) return true
+  const words = name.split(' ')
+  for (let i = 0; i < words.length; i += 1) {
+    if (phrases.has(words[i])) return true
+    const until = Math.min(words.length, i + maxWords)
+    for (let j = i + 2; j <= until; j += 1) {
+      if (phrases.has(words.slice(i, j).join(' '))) return true
+    }
+  }
+  return false
 }
 
 /** Genre/category text the panel provides for this band. */
@@ -447,9 +491,30 @@ export function matchesBandText(title: Title, band: BandDefinition): boolean {
   return band.text.test(title.categoryName ?? '')
 }
 
+/**
+ * Per-title answer for a band. A catalogue title object is stable for the life
+ * of the snapshot, and the genre list, the counts and the filtered grid all ask
+ * the same question about the same 46k titles, so it is answered once.
+ */
+const bandResult = new WeakMap<Title, Partial<Record<BandKey, boolean>>>()
+
 export function isBandTitle(title: Title, band: BandDefinition): boolean {
-  return matchesBandText(title, band) || matchesBandName(title, band)
+  let answers = bandResult.get(title)
+  if (!answers) {
+    answers = {}
+    bandResult.set(title, answers)
+  }
+  const known = answers[band.key]
+  if (known !== undefined) return known
+  const value = matchesBandText(title, band) || matchesBandName(title, band)
+  answers[band.key] = value
+  return value
 }
+
+/** Genre name to band, resolved once instead of per title. */
+const BAND_BY_GENRE = new Map<string, BandDefinition>(
+  Object.values(BANDS).map((band) => [band.genre.toLowerCase(), band]),
+)
 
 /**
  * The homepage band: known titles first (best rated first), then everything
@@ -488,7 +553,7 @@ export function pickBandTitles(
 
 /** Whether a catalogue title belongs to the band's genre filter. */
 export function matchesBandGenre(title: Title, genre: string): boolean {
-  const band = Object.values(BANDS).find((entry) => entry.genre.toLowerCase() === genre.toLowerCase())
+  const band = typeof genre === 'string' ? BAND_BY_GENRE.get(genre.toLowerCase()) : undefined
   if (!band) return false
   return isBandTitle(title, band)
 }
