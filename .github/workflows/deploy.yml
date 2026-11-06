@@ -1,0 +1,69 @@
+name: Publish site
+
+# The host's own git deploy runs this same repo build, but it publishes the
+# build output into its Node runtime folder and then mirrors an empty document
+# root over public_html, which empties the live site. This workflow is the
+# authoritative publisher: it builds the same commit and rsyncs dist/ into the
+# document root after that build has finished.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-site
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build site
+        run: npm run build
+
+      - name: Wait for the host deploy to finish
+        run: sleep 75
+
+      - name: Install ssh key
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Publish to document root
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          RSYNC_RSH="ssh -i ~/.ssh/deploy_key -p $SSH_PORT -o StrictHostKeyChecking=accept-new"
+          export RSYNC_RSH
+          rsync -az --delete --itemize-changes dist/ "$SSH_USER@$SSH_HOST:domains/movies.vntera.com/public_html/"
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'mkdir -p domains/movies.vntera.com/public_html/downloads'
+
+      - name: Verify the live site
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://movies.vntera.com/index.html || true)
+            echo "attempt $i: $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 15
+          done
+          echo "live site did not answer 200" >&2
+          exit 1
