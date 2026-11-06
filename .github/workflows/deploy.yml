@@ -57,7 +57,19 @@ jobs:
         run: |
           RSYNC_RSH="ssh -i ~/.ssh/deploy_key -p $SSH_PORT -o StrictHostKeyChecking=accept-new"
           export RSYNC_RSH
-          rsync -az --delete --itemize-changes dist/ "$SSH_USER@$SSH_HOST:domains/movies.vntera.com/public_html/"
+          # The host's own git deploy can still be swapping the document root when
+          # this runs, which empties public_html underneath rsync (exit 23, and a
+          # live site that answers 403). Publishing again once the host settles is
+          # what restores it, so retry instead of failing the only publisher.
+          for attempt in 1 2 3 4; do
+            if rsync -az --delete --itemize-changes dist/ "$SSH_USER@$SSH_HOST:domains/movies.vntera.com/public_html/"; then
+              exit 0
+            fi
+            echo "rsync attempt $attempt failed; waiting for the host to settle" >&2
+            sleep 60
+          done
+          echo "publish kept failing" >&2
+          exit 1
 
       - name: Verify the live site
         run: |
