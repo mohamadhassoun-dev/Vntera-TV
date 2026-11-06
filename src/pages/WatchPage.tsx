@@ -89,12 +89,20 @@ export default function WatchPage() {
 
   // The pinned quality wins; on "auto" a thin connection starts on a lighter
   // edition instead of stalling on the biggest file the panel offers.
-  const edition = useMemo(
-    () =>
-      editions.find((e) => e.streamId === editionParam) ??
-      pickEdition(editions, settings.quality, detectNetworkSpeed(settings.dataSaver)),
-    [editions, editionParam, settings.quality, settings.dataSaver],
-  )
+  // A live channel is the exception: its extra "editions" are separate panel
+  // entries for the same channel (one of them often dead), not lighter renditions
+  // of one stream, so the primary entry is always the one worth tuning.
+  const edition = useMemo(() => {
+    const pinned = editions.find((e) => e.streamId === editionParam)
+    if (pinned) return pinned
+    if (kind === 'live') {
+      // A live channel's extra "editions" are duplicate panel entries for the
+      // same channel, not lighter renditions of one stream. The old leftovers are
+      // the ones that stop playing, so the newest provision is the one to tune.
+      return [...editions].sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))[0]
+    }
+    return pickEdition(editions, settings.quality, detectNetworkSpeed(settings.dataSaver))
+  }, [editions, editionParam, kind, settings.quality, settings.dataSaver])
 
   const streamId =
     kind === 'series' ? Number(currentEpisode?.id ?? 0) : (edition?.streamId ?? title?.id ?? 0)

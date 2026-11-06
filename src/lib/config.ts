@@ -20,9 +20,10 @@ export const FEATURED_CHANNELS: Array<{ id?: number; names?: string[]; label: st
     names: ['bein sports low 1', 'bein sports low1', 'beinsports low 1', 'bein low 1'],
     label: 'beIN SPORTS LOW 1',
   },
-  // Requested by stream id: these two carry no stable name match.
-  { id: 553863, label: 'OSN Cartoon Network' },
-  { id: 549233, label: 'Spacetoon' },
+  // Name first, stream id as the fallback: the panel re-issues ids when a
+  // channel is reprovisioned, and a stale id tuned nothing at all.
+  { names: ['osn cartoon network', 'osn cartoon'], id: 553863, label: 'OSN Cartoon Network' },
+  { names: ['spacetoon'], id: 549233, label: 'Spacetoon' },
 ]
 
 /** Local artwork for channels the panel ships without a usable logo, keyed by

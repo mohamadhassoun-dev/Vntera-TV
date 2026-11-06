@@ -9,7 +9,7 @@ import {
   PanelError,
   fetchM3U,
 } from '../lib/xtream'
-import { buildCatalog, featuredChannelLabel } from '../lib/normalize'
+import { buildCatalog } from '../lib/normalize'
 import type { CatalogSnapshot, RawCategory, RawLiveStream, RawSeries, RawVodStream, Title } from '../types'
 import { classifyEntries, parseM3U } from '../lib/m3u'
 
@@ -253,9 +253,18 @@ export function featuredChannels(snapshot: CatalogSnapshot | null): FeaturedChan
   if (!snapshot) return []
   const out: FeaturedChannelShortcut[] = []
   for (const entry of FEATURED_CHANNELS) {
-    const channel = entry.id
-      ? snapshot.channels.find((c) => c.id === entry.id)
-      : snapshot.channels.find((c) => featuredChannelLabel(c) === entry.label)
+    // The panel often lists one channel twice: the working stream plus a dead
+    // duplicate left over from a re-provision. Both answer to the same name, so
+    // the configured id is the reliable pick and the name is only the fallback
+    // for when the panel re-issues ids. Among name matches the newest wins,
+    // because the panel appends the duplicate that still plays.
+    const names = new Set((entry.names ?? []).map((name) => name.trim().toLowerCase()))
+    const byName = names.size
+      ? snapshot.channels
+          .filter((c) => names.has(c.name.trim().toLowerCase()) || names.has(c.cleanName.trim().toLowerCase()))
+          .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))[0]
+      : undefined
+    const channel = (entry.id ? snapshot.channels.find((c) => c.id === entry.id) : undefined) ?? byName
     if (channel) out.push({ channel, label: entry.label })
   }
   return out

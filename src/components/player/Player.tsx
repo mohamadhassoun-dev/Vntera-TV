@@ -71,6 +71,11 @@ const DOWNGRADE_AFTER_MS = 12_000
 const RECOVER_AFTER_MS = 25_000
 const GIVE_UP_AFTER_MS = 45_000
 const LIVE_GIVE_UP_AFTER_MS = 25_000
+/**
+ * Gaps between automatic retunes of a live channel. Panels answer 503 while they
+ * re-allocate a stream to another edge, so an instant error card was wrong there.
+ */
+const LIVE_TUNE_RETRY_DELAYS = [1_500, 3_500, 6_500]
 /** Idle time before the live overlay clears itself, leaving only the picture. */
 const LIVE_HIDE_DELAY_MS = 6_000
 const HIDE_DELAY_MS = 3_600
@@ -126,6 +131,8 @@ export function Player({
   const holdRepeat = useRef<number | null>(null)
   const heldLong = useRef(false)
   const triedAlt = useRef(false)
+  /** A live channel that failed on raw TS retries on its HLS rendition first. */
+  const preferAlt = useRef(false)
   /** Automatic re-attach attempts for a stalling VOD stream, and where to resume. */
   const autoRetries = useRef(0)
   const resumeAfterRecovery = useRef(0)
@@ -134,6 +141,10 @@ export function Player({
   const recoveryTried = useRef(false)
   /** Live feeds that drop their segment stream get retuned instead of "Finished". */
   const liveRetunes = useRef(0)
+  /** Automatic retunes of a live channel that never produced a frame, and after a stall. */
+  const tuneRetries = useRef(0)
+  const stallRetunes = useRef(0)
+  const retuneTimer = useRef<number | null>(null)
 
   const settings = useSettings()
   const [playing, setPlaying] = useState(false)
@@ -238,6 +249,32 @@ export function Player({
     armHide()
   }, [armHide])
 
+  /**
+   * Retunes the live source after a pause, alternating between the raw-TS and HLS
+   * renditions so a codec or edge problem on one of them is skipped next time.
+   */
+  const retuneLive = useCallback(
+    (delay: number) => {
+      if (retuneTimer.current) window.clearTimeout(retuneTimer.current)
+      if (srcAlt) preferAlt.current = !preferAlt.current
+      setNotice('Reconnecting to the channel…')
+      retuneTimer.current = window.setTimeout(() => {
+        retuneTimer.current = null
+        setReloadKey((key) => key + 1)
+      }, delay)
+    },
+    [srcAlt],
+  )
+
+  /** A live tune that failed before its first frame retries before the error card. */
+  const retryFailedTune = useCallback(() => {
+    const delay = LIVE_TUNE_RETRY_DELAYS[tuneRetries.current]
+    if (!isLive || delay === undefined) return false
+    tuneRetries.current += 1
+    retuneLive(delay)
+    return true
+  }, [isLive, retuneLive])
+
   // ------------------------------ source setup ------------------------------
   useEffect(() => {
     const video = videoRef.current
@@ -245,7 +282,10 @@ export function Player({
     setError(null)
     setBuffering(true)
     setEnded(false)
-    triedAlt.current = false
+    // A live tune that just failed on raw TS retries on the HLS rendition first.
+    const startOnAlt = preferAlt.current && !!srcAlt
+    preferAlt.current = false
+    triedAlt.current = startOnAlt
 
     let hls: InstanceType<HlsCtor> | null = null
     let tsPlayer: ReturnType<MpegtsLib['createPlayer']> | null = null
@@ -292,6 +332,22 @@ export function Player({
           // Still playing: the clock is the arbiter, and the stall watchdog below
           // is what speaks up if the picture really stops.
           if (!video.paused && video.readyState >= 2) return
+          // A channel whose MPEG-TS carries a codec this browser cannot decode
+          // (HEVC, for instance) is still served as HLS. The raw-TS failure used
+          // to go straight to the "could not be tuned" card, so those channels
+          // looked dead even though their .m3u8 played.
+          if (srcAlt && !triedAlt.current) {
+            triedAlt.current = true
+            try {
+              tsPlayer?.destroy()
+            } catch {
+              /* already torn down */
+            }
+            if (tsRef.current === tsPlayer) tsRef.current = null
+            tsPlayer = null
+            void attach(srcAlt)
+            return
+          }
           if (type !== mpegts.ErrorTypes.MEDIA_ERROR && tsRecoveries < 2) {
             tsRecoveries += 1
             try {
@@ -300,6 +356,7 @@ export function Player({
               /* recover is best effort; fall through to the card */
             }
           }
+          if (retryFailedTune()) return
           setError(TUNE_ERROR_MESSAGE)
           setBuffering(false)
         })
@@ -364,6 +421,9 @@ export function Player({
             void attach(srcAlt)
             return
           }
+          // A manifest that 503s / 404s can be back a second later on a panel
+          // that moves streams between edges, so retry before blaming the channel.
+          if (retryFailedTune()) return
           setError(
             data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR
               ? 'Stream could not be reached. The provider may be offline or the connection limit was hit.'
@@ -377,7 +437,7 @@ export function Player({
       }
     }
 
-    void attach(src)
+    void attach(startOnAlt && srcAlt ? srcAlt : src)
 
     if (startAt > 30) {
       const onMeta = () => {
@@ -421,7 +481,18 @@ export function Player({
     hasPlayed.current = false
     recoveryTried.current = false
     liveRetunes.current = 0
+    tuneRetries.current = 0
+    stallRetunes.current = 0
   }, [src])
+
+  // A pending retune must not fire into a player that is gone.
+  useEffect(
+    () => () => {
+      if (retuneTimer.current) window.clearTimeout(retuneTimer.current)
+      retuneTimer.current = null
+    },
+    [],
+  )
 
   // ------------------------------ media events ------------------------------
   useEffect(() => {
@@ -463,6 +534,9 @@ export function Player({
     const onWaiting = () => setBuffering(true)
     const onPlaying = () => {
       hasPlayed.current = true
+      // A recovered channel gets its full retry budget back for the next drop.
+      tuneRetries.current = 0
+      stallRetunes.current = 0
       setBuffering(false)
       // The stream recovered: drop any warning that is no longer true.
       setError(clearTransientError)
@@ -472,11 +546,22 @@ export function Player({
       if (!video.currentSrc && !video.getAttribute('src')) return
       const code = video.error?.code
       if (code === 1 || code === 0) return
+      // The same channel is also published as HLS: try that before telling the
+      // viewer the channel is offline.
+      if (isLive && srcAlt && !triedAlt.current) {
+        triedAlt.current = true
+        preferAlt.current = true
+        setReloadKey((key) => key + 1)
+        return
+      }
       // A source the browser refuses to decode will refuse again one second
       // later. Silently reloading it left a black player with no way out — the
       // viewer saw nothing happen and never got the Retry panel.
       const fatal = code === 3 || code === 4
       // A dropped connection, on the other hand, is worth one silent resume.
+      // A live channel that drops before any picture is retried too: the panel
+      // frees the dead socket and hands out a fresh edge within seconds.
+      if (isLive && retryFailedTune()) return
       if (!fatal && !isLive && autoRetries.current < 1) {
         autoRetries.current += 1
         resumeAfterRecovery.current = video.currentTime
@@ -540,7 +625,7 @@ export function Player({
       video.removeEventListener('ended', onEnded)
       video.removeEventListener('volumechange', onVolume)
     }
-  }, [armHide, isLive, onNext, onProgress, settings.autoplayNext])
+  }, [armHide, isLive, onNext, onProgress, settings.autoplayNext, retryFailedTune])
 
   // A slow line is not an error: only give up after every rescue step failed.
   // The check watches real progress, so a stream that keeps playing never trips.
@@ -567,6 +652,13 @@ export function Player({
       const stalledFor = Date.now() - lastProgressAt
       const giveUpAfter = isLive ? LIVE_GIVE_UP_AFTER_MS : GIVE_UP_AFTER_MS
       if (stalledFor >= giveUpAfter) {
+        // A live channel that stopped producing data is retuned before the card:
+        // dropping the dead request is usually all the panel needs to recover.
+        if (isLive && stallRetunes.current < 2) {
+          stallRetunes.current += 1
+          retuneLive(0)
+          return
+        }
         setBuffering(false)
         setError((current) => current ?? STREAM_STALL_MESSAGE)
         return
@@ -587,7 +679,7 @@ export function Player({
       }
     }, 2_000)
     return () => window.clearInterval(timer)
-  }, [src, reloadKey, isLive, onStall])
+  }, [src, reloadKey, isLive, onStall, retuneLive])
 
   useEffect(() => {
     if (!buffering) {

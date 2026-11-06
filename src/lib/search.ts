@@ -142,12 +142,73 @@ export function groupChannelsByBrand(channels: Title[]): Array<{ key: string; na
   }))
 }
 
+/**
+ * Titles people actually look for, in preference order. Each one is only shown
+ * when the catalogue really carries it — a chip must never open an empty result
+ * page. The rest of the row fills with the most-watched titles the panel has.
+ */
+const TRENDING_NAMES = [
+  'Fauda',
+  'Venom',
+  'The Batman',
+  'Oppenheimer',
+  'John Wick',
+  'The Last of Us',
+  'Wednesday',
+  'Stranger Things',
+  'Money Heist',
+  'Breaking Bad',
+  'Squid Game',
+  'Dune',
+  'Interstellar',
+  'Peaky Blinders',
+  'Game of Thrones',
+  'The Walking Dead',
+  'Prison Break',
+  'The Godfather',
+]
+
+const cleanSearchName = (name: string) => name.replace(/\s*\[.*?\]\s*/g, '').trim()
+const searchKey = (name: string) => cleanSearchName(name).toLowerCase()
+
 export function trendingSearches(catalog: CatalogSnapshot | null, limit = 8): string[] {
   if (!catalog) return []
   const pool = [...catalog.movies, ...catalog.series]
+  const byKey = new Map<string, string>()
+  for (const title of pool) {
+    const key = searchKey(title.name)
+    if (key && !byKey.has(key)) byKey.set(key, cleanSearchName(title.name))
+  }
+
+  const picked: string[] = []
+  const seen = new Set<string>()
+  const add = (name: string) => {
+    const key = searchKey(name)
+    if (!key || seen.has(key) || picked.length >= limit) return
+    seen.add(key)
+    picked.push(cleanSearchName(name))
+  }
+
+  // A curated title matches on its whole name first, then on a prefix, so
+  // "Venom" finds "Venom: The Last Dance" instead of being dropped.
+  for (const wanted of TRENDING_NAMES) {
+    const exact = byKey.get(wanted.toLowerCase())
+    if (exact) {
+      add(exact)
+      continue
+    }
+    const prefix = pool.find((title) => searchKey(title.name).startsWith(wanted.toLowerCase()))
+    if (prefix) add(prefix.name)
+  }
+
+  const popular = [...pool]
     .sort((a, b) => (b.watchCount ?? 0) - (a.watchCount ?? 0) || (b.rating ?? 0) - (a.rating ?? 0))
-    .slice(0, limit)
-  return pool.map((t) => t.name.replace(/\s*\[.*?\]\s*/g, '').trim())
+  for (const title of popular) {
+    if (picked.length >= limit) break
+    add(title.name)
+  }
+
+  return picked
 }
 
 export function groupProviders(titles: Title[]) {

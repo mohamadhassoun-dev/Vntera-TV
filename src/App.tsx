@@ -42,6 +42,8 @@ export default function App() {
 
   const [formFactor, setFormFactor] = useState(() => detectFormFactor())
   const [booted, setBooted] = useState(false)
+  /** The launch intro has played out (or been skipped). */
+  const [introDone, setIntroDone] = useState(false)
 
   const catalogProgress = useCatalog((s) => s.progress)
 
@@ -115,33 +117,33 @@ export default function App() {
     return uninstall
   }, [formFactor, navigate])
 
-  // The smiley covers the session lookup and nothing else: as soon as the
-  // account is known the shell paints and each page fills itself in. Waiting
-  // for a catalogue here is what made a first launch feel like a dead screen.
-  if (status === 'booting' || !booted) return <Splash progress={catalogProgress} />
+  // The intro covers the first moments while the route below it loads: the home
+  // page (or the login form) is mounted and fetching behind the video, so the
+  // splash never adds to the wait, it hides it.
+  const booting = status === 'booting'
+  const showIntro = booting || !(booted && introDone)
+
+  if (booting) return <Splash progress={catalogProgress} intro onDone={() => setIntroDone(true)} />
+
+  let content: React.ReactNode
 
   // The app download page is public: it is how a phone gets the app in the first place.
   if (location.pathname === '/download') {
-    return (
+    content = (
       <Suspense fallback={<Splash />}>
         <DownloadPage />
       </Suspense>
     )
-  }
-
-  if (status === 'anon') {
-    return (
+  } else if (status === 'anon') {
+    content = (
       <Suspense fallback={<Splash />}>
         <Routes>
           <Route path="*" element={<LoginPage />} />
         </Routes>
       </Suspense>
     )
-  }
-
-  const isWatchRoute = location.pathname.startsWith('/watch/')
-
-  return (
+  } else {
+    content = (
     <Suspense fallback={<PageSkeleton />}>
       <Routes>
         <Route path="/login" element={<Navigate to="/" replace />} />
@@ -180,7 +182,14 @@ export default function App() {
           }
         />
       </Routes>
-      {isWatchRoute ? null : null}
     </Suspense>
+    )
+  }
+
+  return (
+    <>
+      {content}
+      {showIntro ? <Splash progress={catalogProgress} intro onDone={() => setIntroDone(true)} /> : null}
+    </>
   )
 }

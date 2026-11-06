@@ -488,7 +488,8 @@ export const ChannelStoryCard = memo(function ChannelStoryCard({ channel }: { ch
 // -------------------------------- hero -------------------------------------
 
 /** How long each featured movie stays on the billboard. */
-export const HERO_SLIDE_MS = 7000
+/** The featured lineup turns over every ten minutes, as requested. */
+export const HERO_SLIDE_MS = 10 * 60 * 1000
 
 export function Hero({
   title,
