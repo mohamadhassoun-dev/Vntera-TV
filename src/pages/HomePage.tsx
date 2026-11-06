@@ -333,7 +333,7 @@ export default function HomePage() {
         {isTV ? (
           <TvHero
             title={hero}
-            picks={rows.blockbusters.slice(0, 4)}
+            picks={rows.blockbusters.slice(0, 6)}
             onPlay={() =>
               navigate(`/watch/${hero.kind}/${hero.id}${hero.kind === 'series' ? '?season=1&episode=1' : ''}`)
             }
