@@ -35,6 +35,27 @@ jobs:
       - name: Build site
         run: npm run build
 
+      # The Windows installer is 120 MB and `*.exe` is git-ignored, so it cannot
+      # ride in the repository. The release asset is private (the repository is
+      # private, and an anonymous release URL answers 404), which is why the site
+      # serves the file itself: fetch the asset here with the workflow token and
+      # put it in the published folder. Publishing without it would leave the
+      # Windows button pointing at a page that is not there, so this step fails
+      # loudly instead of skipping.
+      - name: Stage the Windows installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          installer="Vntera-Setup-$version.exe"
+          mkdir -p dist/files
+          gh release download "v$version" --repo "$GITHUB_REPOSITORY" --pattern "$installer" --dir dist/files
+          size=$(stat -c%s "dist/files/$installer")
+          magic=$(head -c2 "dist/files/$installer")
+          echo "staged $installer ($size bytes, magic $magic)"
+          test "$magic" = "MZ"
+          test "$size" -gt 50000000
+
       - name: Wait for the host deploy to finish
         run: sleep 75
 
@@ -73,10 +94,18 @@ jobs:
 
       - name: Verify the live site
         run: |
+          version=$(node -p "require('./package.json').version")
           for i in $(seq 1 10); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://movies.vntera.com/index.html || true)
             echo "attempt $i: $code"
-            [ "$code" = "200" ] && exit 0
+            if [ "$code" = "200" ]; then
+              # The Windows button has to serve the real executable, not the app
+              # shell: a one-byte Range request proves the file is on the host.
+              head -c1 /dev/zero | curl -s -r 0-0 -o /tmp/exe-byte.bin -w 'installer %{http_code} %{size_download}\n' \
+                "http://movies.vntera.com/files/Vntera-Setup-$version.exe"
+              test "$(cat /tmp/exe-byte.bin)" = "M"
+              exit 0
+            fi
             sleep 15
           done
           echo "live site did not answer 200" >&2

@@ -13,7 +13,7 @@
   "desktop": {
     "file": "/files/Vntera-Setup-1.1.25.exe",
     "url": "https://github.com/mohamadhassoun-dev/Vntera-TV/releases/download/v1.1.25/Vntera-Setup-1.1.25.exe",
-    "selfHosted": false,
+    "selfHosted": true,
     "bytes": 124792882,
     "available": true
   }
