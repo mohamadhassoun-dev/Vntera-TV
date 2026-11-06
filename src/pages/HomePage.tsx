@@ -176,13 +176,13 @@ export default function HomePage() {
     return scheduleNextUtcWeekUpdate(() => setWeekIndex(utcWeekIndex(new Date())), Date.now())
   }, [weekIndex])
 
-  // The hero swaps its five movies on every three-day boundary.
+  // The hero swaps its Blockbusters line-up every hour, on the hour.
   useEffect(() => {
     return scheduleNextRotationUpdate(() => setRotationIndex(utcRotationIndex(new Date())), Date.now())
   }, [rotationIndex])
 
   const movies = useMemo(() => snapshot?.movies ?? [], [snapshot])
-  // Hero candidates: the Popular on Vntera ranking and the Blockbusters set.
+  // Hero candidates: the Blockbusters set and nothing else.
   const heroPool = useMemo(() => heroCandidatePool(movies), [movies])
   const heroShown = useHeroHistory((state) => state.shown)
   const recordHero = useHeroHistory((state) => state.record)

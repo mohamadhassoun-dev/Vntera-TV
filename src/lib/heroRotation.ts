@@ -2,12 +2,8 @@ import type { Title } from '../types'
 import { artworkKey, isRenderableArtwork, stableHash, titleIdentity } from './homeRotation'
 import { isHiddenFromHome } from './hidden'
 
-/** Movies the hero features per three-day rotation. */
+/** Movies the hero features per hourly rotation. */
 export const HERO_ROTATION_SIZE = 10
-
-/** How deep into the Popular ranking the hero reaches. The ranking holds every
- *  title in the library, and the hero should feature what viewers actually open. */
-const POPULAR_DEPTH = 500
 
 /** One movie already featured, and the rotation that showed it. */
 export interface HeroRotationEntry {
@@ -15,9 +11,9 @@ export interface HeroRotationEntry {
   rotation: number
 }
 
-/** The hero pool: the Popular on Vntera ranking plus the Blockbusters set, and
- *  nothing else. A poster that cannot render disqualifies a movie, because the
- *  hero has no room for generated artwork. */
+/** The hero pool: the Blockbusters set and nothing else. A poster that cannot
+ *  render disqualifies a movie, because the hero has no room for generated
+ *  artwork. */
 export function heroCandidatePool(movies: readonly Title[]): Title[] {
   const eligible = movies.filter(
     (movie) =>
@@ -26,20 +22,19 @@ export function heroCandidatePool(movies: readonly Title[]): Title[] {
       movie.hasArtwork &&
       isRenderableArtwork(movie.poster),
   )
-  const popular = [...eligible]
+  const blockbusters = eligible
+    .filter((movie) => movie.blockbuster)
     .sort(
       (a, b) => (b.watchCount ?? 0) - (a.watchCount ?? 0) || (b.rating ?? 0) - (a.rating ?? 0),
     )
-    .slice(0, POPULAR_DEPTH)
-  const blockbusters = eligible.filter((movie) => movie.blockbuster)
 
-  // The two sections overlap, and the panel repeats the same film under several
-  // stream ids, so one movie is one candidate.
+  // The panel repeats the same film under several stream ids, so one movie is
+  // one candidate.
   const seenIds = new Set<number>()
   const seenIdentities = new Set<string>()
   const seenArtwork = new Set<string>()
   const pool: Title[] = []
-  for (const movie of [...blockbusters, ...popular]) {
+  for (const movie of blockbusters) {
     const artwork = artworkKey(movie)
     const identity = titleIdentity(movie)
     if (seenIds.has(movie.id) || seenIdentities.has(identity) || seenArtwork.has(artwork)) continue
@@ -61,7 +56,7 @@ export function heroCandidatePool(movies: readonly Title[]): Title[] {
 /**
  * The hero line-up for one rotation: the next `limit` candidates that no earlier
  * rotation has featured. Picks already recorded for the current rotation are not
- * excluded, so the same ten movies stay on screen for the whole three days.
+ * excluded, so the same movies stay on screen for the whole hour.
  */
 export function selectHeroRotation(
   pool: readonly Title[],

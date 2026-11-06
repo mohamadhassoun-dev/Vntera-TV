@@ -127,7 +127,7 @@ const PROVIDER_LOGOS: Record<string, LogoArt> = {
   disney: { label: 'Disney+', art: '/logos/disney.webp', tint: '#4f7cff' },
   imdb: { label: 'IMDb', art: '/logos/imdb.jpg', tint: '#f5c518' },
   wwe: { label: 'WWE', art: '/logos/wwe.webp', tint: '#d7182a' },
-  kids: { label: 'Kids', video: '/logos/kids-light.mp4', poster: '/logos/kids-poster.jpg', tint: '#22b14c' },
+  kids: { label: 'Kids', art: '/logos/kids.jpg', tint: '#2bb3c0' },
   anime: { label: 'Anime', art: '/logos/anime-poster.webp', tint: '#ff4d6d' },
   music: {
     label: 'Music',

@@ -381,6 +381,8 @@
     .rail > .rail-lead > .poster-card {
       width: 100%;
     }
+    /* The calc above only matches the posters while they keep their rail width;
+       the base rule below sets both, so the logo is never a different size. */
     /* The rank glyph and the poster share the narrower card. Two digits get
        their own column on every card, so "10" is exactly as big as "1" and
        every poster keeps the same width. */
@@ -435,12 +437,18 @@
     cursor: pointer;
     text-align: left;
   }
-  /* Rails are the only place a poster gets its own width. */
-  .rail > .poster-card {
+  /* Rails are the only place a poster gets its own width. A brand row's logo
+     card is the same size as those posters at every breakpoint. */
+  .rail > .poster-card,
+  .rail > .rail-lead {
     width: 8.6rem;
   }
   @media (min-width: 768px) {
     .rail > .poster-card {
+      width: 10.5rem;
+    }
+    /* The brand wordmark that leads a row is the same size as the posters. */
+    .rail > .rail-lead {
       width: 10.5rem;
     }
   }
@@ -448,8 +456,14 @@
     .rail > .poster-card {
       width: 11.6rem;
     }
+    .rail > .rail-lead {
+      width: 11.6rem;
+    }
   }
   html[data-form-factor='tv'] .rail > .poster-card {
+    width: 12rem;
+  }
+  html[data-form-factor='tv'] .rail > .rail-lead {
     width: 12rem;
   }
   /* Only a real pointer hovers, and only the TV surface paints a focus frame: on

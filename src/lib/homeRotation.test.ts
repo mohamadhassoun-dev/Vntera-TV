@@ -34,22 +34,22 @@ function movie(id: number, overrides: Partial<Title> = {}): Title {
   }
 }
 
-describe('hero three-day rotation', () => {
-  it('advances once per three days and is identical across time zones', () => {
+describe('hero hourly rotation', () => {
+  it('advances once per hour and is identical across time zones', () => {
     const start = Date.UTC(2026, 0, 1, 0, 0, 0)
-    const withinWindow = Date.UTC(2026, 0, 3, 23, 59, 59)
+    const withinWindow = Date.UTC(2026, 0, 1, 0, 59, 59)
     expect(utcRotationIndex(new Date(withinWindow))).toBe(utcRotationIndex(new Date(start)))
-    expect(utcRotationIndex(new Date(start + 3 * 24 * 60 * 60 * 1000))).toBe(
+    expect(utcRotationIndex(new Date(start + 60 * 60 * 1000))).toBe(
       utcRotationIndex(new Date(start)) + 1,
     )
   })
 
-  it('fires the rotation timer on the next three-day boundary', () => {
+  it('fires the rotation timer on the next hour boundary', () => {
     vi.useFakeTimers()
     const onBoundary = vi.fn()
     const now = Date.UTC(2026, 5, 10, 12, 0, 0)
     const stop = scheduleNextRotationUpdate(onBoundary, now)
-    vi.advanceTimersByTime(3 * 24 * 60 * 60 * 1000)
+    vi.advanceTimersByTime(60 * 60 * 1000)
     expect(onBoundary).toHaveBeenCalledTimes(1)
     stop()
     vi.useRealTimers()

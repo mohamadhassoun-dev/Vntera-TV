@@ -27,7 +27,7 @@ function movie(id: number, overrides: Partial<Title> = {}): Title {
 const pool = (count: number) => Array.from({ length: count }, (_, index) => movie(index + 1))
 
 describe('hero rotation', () => {
-  it('draws only from the popular ranking and the blockbuster set', () => {
+  it('draws only from the Blockbusters set', () => {
     const movies = [
       ...Array.from({ length: 600 }, (_, index) => movie(index + 1, { watchCount: 10_000 - index })),
       movie(900, { blockbuster: true, watchCount: 0 }),
@@ -35,11 +35,17 @@ describe('hero rotation', () => {
       movie(902, { watchCount: 0 }),
     ]
     const candidates = heroCandidatePool(movies)
-    const ids = new Set(candidates.map((title) => title.id))
-    expect(ids.has(900)).toBe(true)
-    // Ranked below the depth the hero reads, and not a blockbuster.
-    expect(ids.has(902)).toBe(false)
-    expect(candidates.length).toBeGreaterThan(HERO_ROTATION_SIZE)
+    expect(candidates.map((title) => title.id).sort()).toEqual([900, 901])
+  })
+
+  it('orders the Blockbusters by what viewers actually watch', () => {
+    const candidates = heroCandidatePool([
+      movie(1, { blockbuster: true, watchCount: 5 }),
+      movie(2, { blockbuster: true, watchCount: 50 }),
+      movie(3, { blockbuster: true, watchCount: 20 }),
+    ])
+    expect(candidates.map((title) => title.id).sort()).toEqual([1, 2, 3])
+    expect(HERO_ROTATION_SIZE).toBeGreaterThan(0)
   })
 
   it('keeps movies without a usable poster out of the hero', () => {
@@ -47,7 +53,8 @@ describe('hero rotation', () => {
       movie(1, { poster: 'https://image.tmdb.org/t/p/w600_and_h900_bestv2' }),
       movie(2, { poster: undefined, hasArtwork: false }),
       movie(3, { poster: 'https://cdn.example.com/no-image.jpg' }),
-      movie(4),
+      movie(4, { blockbuster: true }),
+      movie(5),
     ])
     expect(candidates.map((title) => title.id)).toEqual([4])
   })

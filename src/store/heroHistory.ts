@@ -2,8 +2,8 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { HeroRotationEntry } from '../lib/heroRotation'
 
-/** Roughly five years of three-day rotations; the oldest picks fall off first so
- *  a long-lived profile cannot grow this without bound. */
+/** Roughly 25 days of hourly rotations; the oldest picks fall off first so a
+ *  long-lived profile cannot grow this without bound. */
 const MAX_ENTRIES = 6000
 
 interface HeroHistoryStore {

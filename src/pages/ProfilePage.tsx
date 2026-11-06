@@ -134,12 +134,19 @@ export default function ProfilePage() {
       <div className="shell-x py-7">
         {/* identity */}
         <div className="flex flex-col gap-5 rounded-lg border border-stroke bg-gradient-to-br from-layer-2 via-layer-1 to-canvas p-5 sm:flex-row sm:items-center">
-          <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-stroke bg-layer-3 text-xl font-black uppercase">
-            {session?.username.slice(0, 2) ?? 'VT'}
-          </span>
+          <img
+            src="/logos/user.jpg"
+            alt="Profile"
+            width={64}
+            height={64}
+            className="h-16 w-16 shrink-0 rounded-full border border-stroke object-cover"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-black tracking-tight">{session?.username}</h1>
+              <h1 className="text-xl font-black tracking-tight">Your User Is</h1>
+              {session?.username ? (
+                <span className="font-mono text-[13px] font-semibold text-ink-soft">{session.username}</span>
+              ) : null}
               <span
                 className="rounded-[2px] bg-live/15 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-widest text-live"
               >

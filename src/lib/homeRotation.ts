@@ -1,7 +1,7 @@
 import type { Title } from '../types'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
-const ROTATION_MS = 3 * 24 * 60 * 60 * 1000
+const ROTATION_MS = 60 * 60 * 1000
 const DEFAULT_HOME_LIMIT = 24
 
 /** Titles already chosen for the page, so no rail repeats another rail's work. */
@@ -23,8 +23,8 @@ export function utcWeekIndex(date: Date): number {
   return Math.floor(monday / WEEK_MS)
 }
 
-/** Three-day UTC rotation index: the hero changes its featured movies on this
- *  boundary, so every visitor sees the same set for the same three days. */
+/** Hourly UTC rotation index: the hero changes its featured Blockbusters on this
+ *  boundary, so every visitor sees the same set during the same hour. */
 export function utcRotationIndex(date: Date): number {
   return Math.floor(date.getTime() / ROTATION_MS)
 }
@@ -214,7 +214,7 @@ export function selectWeeklyNewTitles(
   return selectUniqueNewTitles(recent, trending, weekIndex, limit, createArtworkUsage())
 }
 
-/** One-shot timer for the next three-day boundary. Returns its own cleanup. */
+/** One-shot timer for the next hour boundary. Returns its own cleanup. */
 export function scheduleNextRotationUpdate(onBoundary: () => void, now: number): () => void {
   const nextBoundary = (Math.floor(now / ROTATION_MS) + 1) * ROTATION_MS
   const timer = globalThis.setTimeout(onBoundary, Math.max(0, nextBoundary - now))
