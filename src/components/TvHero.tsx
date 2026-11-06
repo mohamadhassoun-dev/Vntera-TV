@@ -171,7 +171,7 @@ export function TvHero({
         <aside className="tv-hero-side">
           <h2 className="text-[0.8rem] font-bold text-white">You might also like this</h2>
           <div className="tv-hero-picks">
-            {picks.slice(0, 4).map((pick) => (
+            {picks.slice(0, 6).map((pick) => (
               <PosterCard key={`${pick.key}-${pick.id}`} title={pick} />
             ))}
           </div>

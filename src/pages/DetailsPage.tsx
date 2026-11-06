@@ -7,7 +7,7 @@ import { LiveBadge, QualityBadge, RatingBadge } from '../components/Badges'
 import { PosterRail } from '../components/Rails'
 import { DownloadButton } from '../components/DownloadButton'
 import { Select } from '../components/Select'
-import { streamUrl } from '../lib/xtream'
+import { directStreamUrl, streamUrl } from '../lib/xtream'
 import { useCatalog } from '../store/catalog'
 import { useDetails } from '../store/details'
 import { useLibrary } from '../store/library'
@@ -259,6 +259,7 @@ export default function DetailsPage() {
                       title: title.name,
                       poster: title.poster,
                       url: streamUrl('movie', activeEdition.streamId, { container: activeEdition.container }),
+                      altUrl: directStreamUrl('movie', activeEdition.streamId, { container: activeEdition.container }),
                       mime: `video/${activeEdition.container || 'mp4'}`,
                     }}
                   />
@@ -466,11 +467,14 @@ export default function DetailsPage() {
                                   kind: 'series',
                                   streamId: Number(ep.id),
                                   title: title.name,
-                                  subtitle: `S${season} E${epNum}${ep.title ? ` · ${ep.title}` : ''}`,
+                                  subtitle: `Season ${season} · Episode ${epNum}${ep.title ? ` · ${ep.title}` : ''}`,
                                   poster: ep.info?.movie_image || title.poster,
                                   season,
                                   episode: epNum,
                                   url: streamUrl('series', Number(ep.id), { container: ep.container_extension }),
+                                  altUrl: directStreamUrl('series', Number(ep.id), {
+                                    container: ep.container_extension,
+                                  }),
                                   mime: `video/${ep.container_extension || 'mp4'}`,
                                 }}
                               />

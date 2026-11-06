@@ -139,6 +139,7 @@ public final class DownloadStore {
         job.put("season", input.optInt("season", 0));
         job.put("episode", input.optInt("episode", 0));
         job.put("url", input.getString("url"));
+        job.put("altUrl", input.optString("altUrl", ""));
         job.put("mime", input.optString("mime", "video/mp4"));
         job.put("state", STATE_QUEUED);
         job.put("bytesDone", 0);

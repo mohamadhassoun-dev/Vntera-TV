@@ -18,6 +18,8 @@ export interface DownloadJob {
   season?: number
   episode?: number
   url: string
+  /** Second address for the same file, tried when the first one refuses. */
+  altUrl?: string
   mime?: string
   state: DownloadState
   /** Bytes already written to storage (resumable). */
@@ -49,6 +51,8 @@ export interface EnqueueInput {
   season?: number
   episode?: number
   url: string
+  /** Second address for the same file, tried when the first one refuses. */
+  altUrl?: string
   mime?: string
   lookahead?: boolean
   byteLimit?: number

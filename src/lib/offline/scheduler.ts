@@ -82,6 +82,7 @@ export class DownloadScheduler {
       season: input.season,
       episode: input.episode,
       url: input.url,
+      altUrl: input.altUrl,
       mime: input.mime,
       state: 'queued',
       bytesDone: 0,

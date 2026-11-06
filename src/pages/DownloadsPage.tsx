@@ -22,6 +22,38 @@ function watchHref(job: DownloadJob): string {
   return `/watch/${job.kind}/${job.titleId}?${query.toString()}`
 }
 
+/** "Season 2 · Episode 4 · The Name" → the parts a row can show separately. */
+function episodeParts(job: DownloadJob): { tag: string; name: string } | null {
+  if (job.kind !== 'series') return null
+  const parts = (job.subtitle ?? '').split(' · ')
+  const season = job.season ?? 1
+  const episode = job.episode ?? 1
+  const named = parts[0]?.startsWith('Season') ? parts.slice(2).join(' · ') : ''
+  return { tag: `S${season} E${episode}`, name: named || parts[0] || '' }
+}
+
+/** One heading per series, so a season of episodes does not read as many titles. */
+function groupJobs(jobs: DownloadJob[]): Array<{ key: string; label: string | null; count: number; jobs: DownloadJob[] }> {
+  const groups: Array<{ key: string; label: string | null; count: number; jobs: DownloadJob[] }> = []
+  const bySeries = new Map<number, (typeof groups)[number]>()
+  for (const job of jobs) {
+    if (job.kind !== 'series') {
+      groups.push({ key: job.id, label: null, count: 1, jobs: [job] })
+      continue
+    }
+    const existing = bySeries.get(job.titleId)
+    if (existing) {
+      existing.jobs.push(job)
+      existing.count += 1
+      continue
+    }
+    const group = { key: `series:${job.titleId}`, label: job.title, count: 1, jobs: [job] }
+    bySeries.set(job.titleId, group)
+    groups.push(group)
+  }
+  return groups
+}
+
 function JobRow({ job }: { job: DownloadJob }) {
   const navigate = useNavigate()
   const pause = useOffline((s) => s.pause)
@@ -31,6 +63,7 @@ function JobRow({ job }: { job: DownloadJob }) {
   const localUrl = useOffline((s) => s.localUrl)
   const [busy, setBusy] = useState(false)
   const percent = progressPercent(job)
+  const episodeInfo = episodeParts(job)
   const ready = job.state === 'completed'
   const running = job.state === 'downloading' || job.state === 'queued'
   const size = job.bytesTotal || job.bytesDone
@@ -52,14 +85,25 @@ function JobRow({ job }: { job: DownloadJob }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <p className="truncate text-[13px] font-semibold text-white">{job.title}</p>
+          <p className="truncate text-[13px] font-semibold text-white">
+            {episodeInfo ? <span className="tabular mr-1.5 text-[11px] font-bold text-ink-soft">{episodeInfo.tag}</span> : null}
+            {episodeInfo ? episodeInfo.name || job.title : job.title}
+          </p>
           <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider ${ready ? 'text-live' : job.state === 'failed' ? 'text-crimson' : 'text-ink-mute'}`}>
             {stateLabel(job.state)}
           </span>
         </div>
-        {job.subtitle ? <p className="truncate text-[11px] text-ink-mute">{job.subtitle}</p> : null}
+        {!episodeInfo && job.subtitle ? <p className="truncate text-[11px] text-ink-mute">{job.subtitle}</p> : null}
         {ready ? (
-          <p className="mt-1 text-[11px] text-ink-soft">{formatBytes(size)} · ready offline</p>
+          <p className="mt-1 text-[11px] text-ink-soft">
+            <span className="mr-1.5 uppercase tracking-wider text-ink-mute">{job.kind === 'series' ? 'Episode' : 'Movie'}</span>
+            {formatBytes(size)} · ready offline
+          </p>
+        ) : job.state === 'failed' ? (
+          <>
+            <p className="mt-1 text-[11px] font-semibold text-crimson">This download could not finish. Tap download to try again.</p>
+            {job.error ? <p className="truncate text-[10px] text-ink-mute">{job.error}</p> : null}
+          </>
         ) : (
           <>
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
@@ -69,7 +113,6 @@ function JobRow({ job }: { job: DownloadJob }) {
               {formatBytes(job.bytesDone)}
               {job.bytesTotal ? ` of ${formatBytes(job.bytesTotal)}` : ''} · {percent}%
               {job.state === 'queued' ? ' · waiting for playback to stop' : ''}
-              {job.error ? ` · ${job.error}` : ''}
             </p>
           </>
         )}
@@ -88,6 +131,11 @@ function JobRow({ job }: { job: DownloadJob }) {
         {job.state === 'paused' || job.state === 'failed' ? (
           <button className="icon-btn" onClick={() => void resume(job.id)} aria-label={`Resume ${job.title}`} data-nav="true">
             <Icon name="download" size={16} />
+          </button>
+        ) : null}
+        {job.state === 'failed' ? (
+          <button className="icon-btn" onClick={() => void resume(job.id)} aria-label={`Retry ${job.title}`} data-nav="true">
+            <Icon name="refresh" size={16} />
           </button>
         ) : null}
         {!ready ? (
@@ -181,7 +229,21 @@ export default function DownloadsPage() {
         {!ready ? (
           <div className="skeleton h-20 w-full" />
         ) : visible.length ? (
-          visible.map((job) => <JobRow key={job.id} job={job} />)
+          groupJobs(visible).map((group) => (
+            <div key={group.key} className="space-y-2">
+              {group.label ? (
+                <div className="flex items-baseline justify-between gap-2 px-1 pt-1">
+                  <p className="truncate text-[12px] font-bold text-white">{group.label}</p>
+                  <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-ink-mute">
+                    {group.count} {group.count === 1 ? 'episode' : 'episodes'}
+                  </span>
+                </div>
+              ) : null}
+              {group.jobs.map((job) => (
+                <JobRow key={job.id} job={job} />
+              ))}
+            </div>
+          ))
         ) : (
           <div className="panel px-4 py-10 text-center">
             <Icon name="download" size={26} className="mx-auto text-ink-mute" />

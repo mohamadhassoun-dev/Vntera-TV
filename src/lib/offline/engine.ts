@@ -24,15 +24,28 @@ export async function transferToStorage(
   const headers: Record<string, string> = {}
   if (resumeFrom > 0) headers.Range = `bytes=${resumeFrom}-`
 
-  const response = await fetch(job.url, { headers, signal, credentials: 'include' })
-  if (!response.ok) {
-    if (response.status === 416) {
+  // The panel refuses a request now and then (a spent connection slot answers
+  // 401) while its own address still serves the file, so the same bytes are
+  // tried on the second address before this attempt is called a failure.
+  const urls = [job.url, job.altUrl].filter((url, index, all): url is string => !!url && all.indexOf(url) === index)
+  let response: Response | null = null
+  let lastStatus = 0
+  for (const url of urls) {
+    const attempt = await fetch(url, { headers, signal, credentials: 'include' }).catch(() => null)
+    if (!attempt) continue
+    if (attempt.status === 416) {
       // The stored slices do not line up with the file any more: start clean.
       await dropChunks(job.id)
       return { bytesDone: 0, bytesTotal: job.bytesTotal }
     }
-    throw new Error(`The server answered ${response.status}`)
+    if (attempt.ok) {
+      response = attempt
+      break
+    }
+    lastStatus = attempt.status
+    attempt.body?.cancel().catch(() => undefined)
   }
+  if (!response) throw new Error(`The server answered ${lastStatus || 'nothing'}`)
 
   const resumed = response.status === 206 && resumeFrom > 0
   if (!resumed && resumeFrom > 0) {

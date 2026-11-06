@@ -1,5 +1,6 @@
 import type { Provider, Quality, RawCategory, RawLiveStream, RawSeries, RawVodStream, Title } from '../types'
 import { CHANNEL_ART, FEATURED_CHANNELS } from './config'
+import { BANDS, matchesBandName } from './genreBands'
 
 const QUALITY_PATTERNS: Array<{ q: Quality; re: RegExp }> = [
   { q: '4K', re: /(\b|\[|\()(4k|uhd|2160p?|hdr10?\+?|dolby\s?vision|dv)(\b|\]|\))/i },
@@ -186,14 +187,43 @@ function reduceEditions(titles: Title[]): Title {
   return best
 }
 
-export function buildCatalog(input: BuildInput) {
-  const liveCats = categoryLookup(input.categories.live)
-  const vodCats = categoryLookup(input.categories.vod)
-  const seriesCats = categoryLookup(input.categories.series)
-  const counts = input.watchCounts || {}
+interface BuildContext {
+  liveCats: Map<string, string>
+  vodCats: Map<string, string>
+  seriesCats: Map<string, string>
+  counts: Record<string, number>
+}
 
-  const channelTitles = new Map<string, Title[]>()
-  for (const ch of input.live) {
+function buildContext(input: BuildInput): BuildContext {
+  return {
+    liveCats: categoryLookup(input.categories.live),
+    vodCats: categoryLookup(input.categories.vod),
+    seriesCats: categoryLookup(input.categories.series),
+    counts: input.watchCounts || {},
+  }
+}
+
+function bucket(map: Map<string, Title[]>, key: string, title: Title): void {
+  const existing = map.get(key)
+  if (existing) existing.push(title)
+  else map.set(key, [title])
+}
+
+/**
+ * Normalising ~46k titles used to run as one synchronous pass. On a phone that
+ * is several seconds in which nothing paints, which is what made a cold launch
+ * look frozen. The same work is cut into slices that hand the frame back to the
+ * browser between them, so the page stays alive while the library is indexed.
+ */
+const SLICE = 900
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+function liveEntry(ch: RawLiveStream, ctx: BuildContext): [string, Title] {
+  const { liveCats, counts } = ctx
+  {
     const name = displayName(ch.name)
     const key = baseTitle(name).toLowerCase()
     const categoryId = String(ch.category_id ?? '0')
@@ -231,13 +261,13 @@ export function buildCatalog(input: BuildInput) {
       cast: [],
       watchCount: counts[`live:${ch.stream_id}`] || 0,
     }
-    const bucket = channelTitles.get(key) || []
-    bucket.push(title)
-    channelTitles.set(key, bucket)
+    return [key, title]
   }
+}
 
-  const movieTitles = new Map<string, Title[]>()
-  for (const m of input.vod) {
+function movieEntry(m: RawVodStream, ctx: BuildContext): [string, Title] {
+  const { vodCats, counts } = ctx
+  {
     const name = displayName(m.name)
     const key = `${baseTitle(name).toLowerCase()}|${parseYear(m.name, m.year) ?? ''}`
     const categoryId = String(m.category_id ?? '0')
@@ -276,13 +306,13 @@ export function buildCatalog(input: BuildInput) {
       cast: [],
       watchCount: counts[`movie:${m.stream_id}`] || 0,
     }
-    const bucket = movieTitles.get(key.toUpperCase()) || []
-    bucket.push(title)
-    movieTitles.set(key.toUpperCase(), bucket)
+    return [key.toUpperCase(), title]
   }
+}
 
-  const seriesMap = new Map<string, Title[]>()
-  for (const s of input.seriesRaw) {
+function seriesEntry(s: RawSeries, ctx: BuildContext): [string, Title] {
+  const { seriesCats, counts } = ctx
+  {
     const name = displayName(s.name)
     const key = baseTitle(name).toLowerCase()
     const categoryId = String(s.category_id ?? '0')
@@ -326,20 +356,114 @@ export function buildCatalog(input: BuildInput) {
       episodeRunTime: s.episode_run_time,
       watchCount: counts[`series:${s.series_id}`] || 0,
     }
-    const bucket = seriesMap.get(key) || []
-    bucket.push(title)
-    seriesMap.set(key, bucket)
+    return [key, title]
   }
+}
 
-  const channels = [...channelTitles.values()].map(reduceEditions)
-  // A channel can legitimately appear once per category/quality feed; keep the
-  // highest quality edition and mark it featured when it matches the pinned set.
-  const movies = [...movieTitles.values()].map(reduceEditions)
-  const series = [...seriesMap.values()].map(reduceEditions)
-
+function finish(movies: Title[]) {
   for (const m of movies) {
     if (m.rating && m.rating >= 8 && m.addedAt > 0) m.blockbuster = true
     if (m.genres.some((g) => /vntera\s?original/i.test(g))) m.vnteraOriginal = true
+  }
+  return movies
+}
+
+export function buildCatalog(input: BuildInput) {
+  const ctx = buildContext(input)
+  const channelTitles = new Map<string, Title[]>()
+  for (const ch of input.live) {
+    const [key, title] = liveEntry(ch, ctx)
+    bucket(channelTitles, key, title)
+  }
+  const movieTitles = new Map<string, Title[]>()
+  for (const m of input.vod) {
+    const [key, title] = movieEntry(m, ctx)
+    bucket(movieTitles, key, title)
+  }
+  const seriesMap = new Map<string, Title[]>()
+  for (const s of input.seriesRaw) {
+    const [key, title] = seriesEntry(s, ctx)
+    bucket(seriesMap, key, title)
+  }
+
+  return {
+    // A channel can legitimately appear once per category/quality feed; keep the
+    // highest quality edition and mark it featured when it matches the pinned set.
+    channels: [...channelTitles.values()].map(reduceEditions),
+    movies: finish([...movieTitles.values()].map(reduceEditions)),
+    series: [...seriesMap.values()].map(reduceEditions),
+    counts: {
+      channels: input.live.length,
+      movies: input.vod.length,
+      series: input.seriesRaw.length,
+    },
+  }
+}
+
+/** The same catalogue, built in slices so the browser can paint in between. */
+export async function buildCatalogAsync(input: BuildInput) {
+  const ctx = buildContext(input)
+  const channelTitles = new Map<string, Title[]>()
+  let sinceYield = 0
+  for (const ch of input.live) {
+    const [key, title] = liveEntry(ch, ctx)
+    bucket(channelTitles, key, title)
+    if (++sinceYield >= SLICE) {
+      sinceYield = 0
+      await yieldToBrowser()
+    }
+  }
+  await yieldToBrowser()
+
+  const movieTitles = new Map<string, Title[]>()
+  for (const m of input.vod) {
+    const [key, title] = movieEntry(m, ctx)
+    bucket(movieTitles, key, title)
+    if (++sinceYield >= SLICE) {
+      sinceYield = 0
+      await yieldToBrowser()
+    }
+  }
+  await yieldToBrowser()
+
+  const seriesMap = new Map<string, Title[]>()
+  for (const s of input.seriesRaw) {
+    const [key, title] = seriesEntry(s, ctx)
+    bucket(seriesMap, key, title)
+    if (++sinceYield >= SLICE) {
+      sinceYield = 0
+      await yieldToBrowser()
+    }
+  }
+  await yieldToBrowser()
+
+  const reduce = async (groups: Map<string, Title[]>): Promise<Title[]> => {
+    const out: Title[] = []
+    for (const list of groups.values()) {
+      out.push(reduceEditions(list))
+      if (++sinceYield >= SLICE) {
+        sinceYield = 0
+        await yieldToBrowser()
+      }
+    }
+    return out
+  }
+
+  const channels = await reduce(channelTitles)
+  const movies = finish(await reduce(movieTitles))
+  const series = await reduce(seriesMap)
+
+  // The landing page asks every one of these the same two questions (is this an
+  // Action title, a Drama title?) the first time it opens. Answering them here,
+  // in slices, hands that first home render a warm answer instead of a name
+  // normalisation for forty-six thousand titles in one blocking pass.
+  for (const movie of movies) {
+    matchesBandName(movie, BANDS.action)
+    matchesBandName(movie, BANDS.drama)
+    if (++sinceYield >= SLICE) {
+      sinceYield = 0
+      await yieldToBrowser()
+    }
   }
 
   return {

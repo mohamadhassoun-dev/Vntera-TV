@@ -29,7 +29,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Real Android download service for offline titles.
@@ -236,14 +239,30 @@ public class DownloadForegroundService extends Service {
         FileOutputStream output = null;
         acquireWakeLock();
         try {
-            connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setConnectTimeout(30_000);
-            connection.setReadTimeout(30_000);
-            connection.setRequestProperty("User-Agent", "Vntera-Android");
-            if (already > 0) connection.setRequestProperty("Range", "bytes=" + already + "-");
+            // Two addresses, redirects followed by hand: the panel answers a
+            // stream request with a 302 to its second origin, and a refused
+            // request (a spent connection slot answers 401) is worth one more
+            // try on the panel's own address before the row is called failed.
+            List<String> candidates = new ArrayList<>();
+            if (url != null && !url.isEmpty()) candidates.add(url);
+            final String altUrl = job.optString("altUrl", "");
+            if (!altUrl.isEmpty() && !altUrl.equals(url)) candidates.add(altUrl);
+
+            IOException lastError = null;
+            for (String candidate : candidates) {
+                try {
+                    connection = open(candidate, already);
+                    break;
+                } catch (IOException error) {
+                    lastError = error;
+                    connection = null;
+                }
+            }
+            if (connection == null) {
+                throw lastError != null ? lastError : new IOException("There is no address to download from");
+            }
 
             int status = connection.getResponseCode();
-            if (status >= 400) throw new IOException("Server answered " + status);
             if (status != 206 && already > 0) {
                 // The server ignored the Range header: this file starts again.
                 already = 0;
@@ -360,6 +379,63 @@ public class DownloadForegroundService extends Service {
                 }
             }
             if (connection != null) connection.disconnect();
+        }
+    }
+
+    /**
+     * Opens a stream and leaves the connection on its first real response.
+     *
+     * The panel does not serve the file itself: it answers 302 and the bytes come
+     * from a second origin, so redirects are followed by hand here (Android's
+     * HttpURLConnection refuses a cross-host jump). A 401 is retried once after a
+     * short pause, because the panel answers that way when a connection slot is
+     * still held by the stream that just closed.
+     */
+    private HttpURLConnection open(String address, long already) throws IOException {
+        String current = address;
+        for (int hop = 0; hop <= 6; hop += 1) {
+            HttpURLConnection connection = (HttpURLConnection) new URL(current).openConnection();
+            connection.setConnectTimeout(30_000);
+            connection.setReadTimeout(30_000);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty("User-Agent", "Vntera-Android");
+            connection.setRequestProperty("Accept", "*/*");
+            if (already > 0) connection.setRequestProperty("Range", "bytes=" + already + "-");
+
+            int status = connection.getResponseCode();
+            if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                String location = connection.getHeaderField("Location");
+                connection.disconnect();
+                if (location == null || location.isEmpty()) {
+                    throw new IOException("The server redirected without an address");
+                }
+                current = new URL(new URL(current), location).toString();
+                continue;
+            }
+            if ((status == 401 || status == 403) && hop == 0) {
+                connection.disconnect();
+                try {
+                    Thread.sleep(1_500L);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                continue;
+            }
+            if (status >= 400) {
+                connection.disconnect();
+                throw new IOException("Server answered " + status + " (" + hostOf(current) + ")");
+            }
+            return connection;
+        }
+        throw new IOException("The server kept redirecting");
+    }
+
+    private static String hostOf(String address) {
+        try {
+            String host = new URL(address).getHost();
+            return host == null || host.isEmpty() ? "the server" : host;
+        } catch (MalformedURLException error) {
+            return "the server";
         }
     }
 

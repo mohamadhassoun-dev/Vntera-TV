@@ -64,6 +64,8 @@ interface RequestOptions {
   headers?: Record<string, string>
   /** Accepted for call-site compatibility; bodies are always read as text. */
   transformResponse?: (data: string) => string
+  /** The panel answers with a top-level array: read it entry by entry. */
+  streamArray?: boolean
 }
 
 const DEFAULT_TIMEOUT = 30_000
@@ -87,6 +89,108 @@ function panelQuery(params: QueryParams, withCredentials: boolean): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface PanelResponse<T = any> {
   data: T
+}
+
+/**
+ * Reads a JSON array without parsing the whole payload in one call.
+ *
+ * `get_vod_streams` is tens of megabytes of JSON. One `JSON.parse` of that is
+ * half a second on a desktop and several seconds on a phone, during which the
+ * app does not paint — the freeze a viewer reads as the app hanging. Each entry
+ * is parsed on its own here and the loop hands the frame back every so often, so
+ * the same bytes cost a few milliseconds at a time.
+ *
+ * Anything that does not start with an array (an error object, for instance) is
+ * kept whole and parsed normally.
+ */
+async function parseArrayBody<T>(response: Response): Promise<T[] | null> {
+  const reader = response.body?.getReader()
+  if (!reader) return null
+  const decoder = new TextDecoder()
+  const out: T[] = []
+  let buffer = ''
+  let raw = ''
+  let pos = 0
+  let depth = 0
+  let inString = false
+  let escape = false
+  let entryStart = -1
+  let started = false
+  let sinceYield = 0
+
+  const yieldToBrowser = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const text = decoder.decode(value, { stream: true })
+      if (!started) raw += text
+      buffer += text
+      for (; pos < buffer.length; pos += 1) {
+        const code = buffer.charCodeAt(pos)
+        if (inString) {
+          if (escape) escape = false
+          else if (code === 92) escape = true
+          else if (code === 34) inString = false
+          continue
+        }
+        if (code === 34) {
+          inString = true
+          continue
+        }
+        if (!started) {
+          if (code === 91) {
+            started = true
+            raw = ''
+          }
+          continue
+        }
+        if (code === 123 || code === 91) {
+          if (depth === 0) entryStart = pos
+          depth += 1
+          continue
+        }
+        if (code === 125 || code === 93) {
+          if (depth > 0) depth -= 1
+          if (depth === 0 && entryStart >= 0) {
+            const slice = buffer.slice(entryStart, pos + 1)
+            entryStart = -1
+            try {
+              out.push(JSON.parse(slice) as T)
+            } catch {
+              /* one malformed entry must not lose the rest */
+            }
+            if (++sinceYield >= 150) {
+              sinceYield = 0
+              await yieldToBrowser()
+            }
+          }
+        }
+      }
+      // Keep only what is still being read: a partial entry, or nothing.
+      if (entryStart > 0) {
+        buffer = buffer.slice(entryStart)
+        pos -= entryStart
+        entryStart = 0
+      } else if (entryStart < 0 && pos > 0) {
+        buffer = ''
+        pos = 0
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => undefined)
+  }
+
+  if (!started) {
+    try {
+      const whole = JSON.parse(raw || buffer) as unknown
+      return Array.isArray(whole) ? (whole as T[]) : null
+    } catch {
+      return null
+    }
+  }
+  return out
 }
 
 async function request<T = any>(
@@ -128,8 +232,13 @@ async function request<T = any>(
     }
 
     let text = ''
+    let streamed: unknown[] | null = null
     try {
-      text = await response.text()
+      if (options.streamArray && response.ok) {
+        streamed = await parseArrayBody(response)
+      } else {
+        text = await response.text()
+      }
     } catch {
       text = ''
     } finally {
@@ -154,6 +263,7 @@ async function request<T = any>(
       throw new PanelError('server', `Vntera error ${response.status}`, response.status)
     }
 
+    if (streamed) return { data: streamed as T }
     if (options.responseType === 'text') return { data: text as T }
     if (!text) return { data: null as T }
     try {
@@ -277,6 +387,7 @@ export async function getLiveChannels(categoryId?: string): Promise<RawLiveStrea
   const res = await api.get('/player_api.php', {
     params: { action: 'get_live_streams', ...(categoryId ? { category_id: categoryId } : {}) },
     timeout: 60_000,
+    streamArray: true,
   })
   return asArray<RawLiveStream>(res.data)
 }
@@ -285,6 +396,7 @@ export async function getMovies(categoryId?: string): Promise<RawVodStream[]> {
   const res = await api.get('/player_api.php', {
     params: { action: 'get_vod_streams', ...(categoryId ? { category_id: categoryId } : {}) },
     timeout: 90_000,
+    streamArray: true,
   })
   return asArray<RawVodStream>(res.data)
 }
@@ -293,6 +405,7 @@ export async function getSeries(categoryId?: string): Promise<RawSeries[]> {
   const res = await api.get('/player_api.php', {
     params: { action: 'get_series', ...(categoryId ? { category_id: categoryId } : {}) },
     timeout: 90_000,
+    streamArray: true,
   })
   return asArray<RawSeries>(res.data)
 }
@@ -390,6 +503,31 @@ export function streamUrl(
   const creds = credentials
   const base = resolveBase(opts.origin)
   if (!creds) return ''
+  const { username, password } = creds
+  if (kind === 'live') {
+    const ext = opts.liveFormat ?? 'm3u8'
+    return `${base}/live/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${streamId}.${ext}`
+  }
+  const ext = opts.container || 'mp4'
+  return `${base}/${kind}/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${streamId}.${ext}`
+}
+
+/**
+ * The panel's own stream address, without the site bridge in front of it.
+ *
+ * The bridge is the right default (it answers 200 and is reachable from the
+ * WebView), but a panel can refuse a bridge request — a spent connection slot or
+ * a stale session token answers 401 — while its own address still serves the
+ * file. Downloads keep this URL as the second chance.
+ */
+export function directStreamUrl(
+  kind: 'live' | 'movie' | 'series',
+  streamId: number,
+  opts: { container?: string; liveFormat?: 'm3u8' | 'ts' } = {},
+): string {
+  const creds = credentials
+  if (!creds) return ''
+  const base = serverOrigin.replace(/\/+$/, '')
   const { username, password } = creds
   if (kind === 'live') {
     const ext = opts.liveFormat ?? 'm3u8'

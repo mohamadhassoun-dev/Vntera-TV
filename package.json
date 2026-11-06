@@ -1,7 +1,7 @@
 {
   "name": "vntera-iptv",
   "private": true,
-  "version": "1.1.20",
+  "version": "1.1.21",
   "type": "module",
   "description": "Vntera TV — IPTV streaming for web, Android, Android TV and Windows",
   "scripts": {
@@ -56,8 +56,10 @@
   "overrides": {
     "http-cache-semantics": "^4.3.0",
     "uuid": "^11.1.1",
+    "cacheable-request": "^10.2.7",
+    "minimatch": "^11.0.5",
     "app-builder-lib": {
-      "minimatch": "^11.0.1"
+      "minimatch": "^11.0.5"
     }
   },
   "main": "desktop/main.mjs"

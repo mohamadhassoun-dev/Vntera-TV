@@ -9,7 +9,7 @@ import {
   PanelError,
   fetchM3U,
 } from '../lib/xtream'
-import { buildCatalog } from '../lib/normalize'
+import { buildCatalogAsync } from '../lib/normalize'
 import type { CatalogSnapshot, RawCategory, RawLiveStream, RawSeries, RawVodStream, Title } from '../types'
 import { classifyEntries, parseM3U } from '../lib/m3u'
 
@@ -27,8 +27,89 @@ interface CatalogStore {
   reset: () => void
 }
 
-// v2: names are prefix-stripped and duplicate provider editions merged.
-const cacheKey = (account: string) => `catalog:v2:${account}`
+// v3: the snapshot is cached in parts (see readCache/writeCache).
+const cacheKey = (account: string) => `catalog:v3:${account}`
+const legacyKey = (account: string) => `catalog:v2:${account}`
+
+/**
+ * A 60k-title snapshot is one enormous object graph, and handing it to IndexedDB
+ * in a single call blocks the UI for hundreds of milliseconds (seconds on a
+ * phone) — the freeze a viewer reads as the app hanging on launch. The cache is
+ * written and read in parts instead, with a frame handed back between them.
+ * Nothing about the cached data changes; only the size of each step.
+ */
+const PART_SIZE = 6000
+
+interface CacheMeta {
+  builtAt: number
+  account: string
+  demo: boolean
+  categories: CatalogSnapshot['categories']
+  counts: CatalogSnapshot['counts']
+  movieParts: number
+  seriesParts: number
+}
+
+const breathe = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out.length ? out : [[]]
+}
+
+async function readCache(account: string): Promise<CatalogSnapshot | null> {
+  const meta = await idbGet<CacheMeta>(`${cacheKey(account)}:meta`)
+  if (!meta) return idbGet<CatalogSnapshot>(legacyKey(account))
+  const channels: Title[] = (await idbGet<Title[]>(`${cacheKey(account)}:channels`)) ?? []
+  const movies: Title[] = []
+  for (let part = 0; part < meta.movieParts; part += 1) {
+    const slice = await idbGet<Title[]>(`${cacheKey(account)}:movies:${part}`)
+    if (slice?.length) for (const title of slice) movies.push(title)
+    await breathe()
+  }
+  const series: Title[] = []
+  for (let part = 0; part < meta.seriesParts; part += 1) {
+    const slice = await idbGet<Title[]>(`${cacheKey(account)}:series:${part}`)
+    if (slice?.length) for (const title of slice) series.push(title)
+    await breathe()
+  }
+  if (!channels.length && !movies.length && !series.length) return null
+  return {
+    account: meta.account,
+    builtAt: meta.builtAt,
+    demo: meta.demo,
+    categories: meta.categories,
+    counts: meta.counts,
+    channels,
+    movies,
+    series,
+  }
+}
+
+async function writeCache(account: string, snapshot: CatalogSnapshot): Promise<void> {
+  const movieParts = chunk(snapshot.movies, PART_SIZE)
+  const seriesParts = chunk(snapshot.series, PART_SIZE)
+  const meta: CacheMeta = {
+    builtAt: snapshot.builtAt,
+    account: snapshot.account,
+    demo: snapshot.demo,
+    categories: snapshot.categories,
+    counts: snapshot.counts,
+    movieParts: movieParts.length,
+    seriesParts: seriesParts.length,
+  }
+  await idbSet(`${cacheKey(account)}:meta`, meta)
+  await idbSet(`${cacheKey(account)}:channels`, snapshot.channels)
+  for (let part = 0; part < movieParts.length; part += 1) {
+    await idbSet(`${cacheKey(account)}:movies:${part}`, movieParts[part])
+    await breathe()
+  }
+  for (let part = 0; part < seriesParts.length; part += 1) {
+    await idbSet(`${cacheKey(account)}:series:${part}`, seriesParts[part])
+    await breathe()
+  }
+}
 
 let inFlight: Promise<void> | null = null
 
@@ -47,7 +128,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
     if (inFlight) return inFlight
 
     const run = async () => {
-      const cached = await idbGet<CatalogSnapshot>(cacheKey(account))
+      const cached = await readCache(account)
       const fresh = cached && Date.now() - cached.builtAt < REFRESH_INTERVAL_MS
       if (cached && !opts.force) {
         set({ snapshot: cached, status: 'ready', progress: 100, phase: '' })
@@ -94,9 +175,11 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
           return snapshot
         }
 
-        const liveTask = getLiveChannels().then((r) => {
+        const liveTask = getLiveChannels().then(async (r) => {
           live = r
-          channels = buildCatalog({ account, live: r, vod: [], seriesRaw: [], categories: catArg }).channels
+          channels = (
+            await buildCatalogAsync({ account, live: r, vod: [], seriesRaw: [], categories: catArg })
+          ).channels
           publish(35)
           set({ phase: `Live ready · ${r.length.toLocaleString()} channels` })
         })
@@ -118,14 +201,19 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
             pendingSeries = window.setTimeout(() => {
               pendingSeries = 0
               if (seriesRaw.length) return
-              series = buildCatalog({
+              const raw = [...seenSeries.values()]
+              void buildCatalogAsync({
                 account,
                 live: [],
                 vod: [],
-                seriesRaw: [...seenSeries.values()],
+                seriesRaw: raw,
                 categories: catArg,
-              }).series
-              publish(48)
+              }).then((built) => {
+                // The full pull may have landed while this slice was indexing.
+                if (seriesRaw.length) return
+                series = built.series
+                publish(48)
+              })
             }, 120)
           }
           let pendingPublish = 0
@@ -140,10 +228,16 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
               // The complete list wins the race: never replace a finished
               // catalogue with this smaller slice.
               if (!seen.size || vod.length) return
-              vod = [...seen.values()]
-              movies = buildCatalog({ account, live: [], vod, seriesRaw: [], categories: catArg }).movies
-              publish(45)
-              set({ phase: `Showing ${vod.length.toLocaleString()} titles` })
+              const raw = [...seen.values()]
+              void buildCatalogAsync({ account, live: [], vod: raw, seriesRaw: [], categories: catArg }).then(
+                (built) => {
+                  if (vod.length) return
+                  vod = raw
+                  movies = built.movies
+                  publish(45)
+                  set({ phase: `Showing ${vod.length.toLocaleString()} titles` })
+                },
+              )
             }, 120)
           }
           await Promise.all([
@@ -170,15 +264,17 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
           starterTask,
           new Promise<void>((resolve) => window.setTimeout(resolve, 6000)),
         ])
-        const vodTask = starterSettled.then(() => getMovies()).then((r) => {
+        const vodTask = starterSettled.then(() => getMovies()).then(async (r) => {
           vod = r
-          movies = buildCatalog({ account, live: [], vod: r, seriesRaw: [], categories: catArg }).movies
+          movies = (await buildCatalogAsync({ account, live: [], vod: r, seriesRaw: [], categories: catArg }))
+            .movies
           publish(70)
           set({ phase: `Movies ready · ${r.length.toLocaleString()} titles` })
         })
-        const seriesTask = starterSettled.then(() => getSeries()).then((r) => {
+        const seriesTask = starterSettled.then(() => getSeries()).then(async (r) => {
           seriesRaw = r
-          series = buildCatalog({ account, live: [], vod: [], seriesRaw: r, categories: catArg }).series
+          series = (await buildCatalogAsync({ account, live: [], vod: [], seriesRaw: r, categories: catArg }))
+            .series
           publish(88)
           set({ phase: `Series ready · ${r.length.toLocaleString()} titles` })
         })
@@ -216,7 +312,8 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
 
         // The M3U fallback above may have produced channels after the live task.
         if (!channels.length && live.length) {
-          channels = buildCatalog({ account, live, vod: [], seriesRaw: [], categories: catArg }).channels
+          channels = (await buildCatalogAsync({ account, live, vod: [], seriesRaw: [], categories: catArg }))
+            .channels
         }
         publish(100)
         set({
@@ -231,7 +328,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         // of the first paint as well.
         const finalSnapshot = get().snapshot
         if (finalSnapshot) {
-          const persist = () => void idbSet(cacheKey(account), finalSnapshot)
+          const persist = () => void writeCache(account, finalSnapshot)
           const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback
           if (typeof idle === 'function') idle(persist)
           else window.setTimeout(persist, 1200)

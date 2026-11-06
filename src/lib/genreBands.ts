@@ -520,25 +520,37 @@ const BAND_BY_GENRE = new Map<string, BandDefinition>(
  * The homepage band: known titles first (best rated first), then everything
  * else the panel labels with the genre, until the band is full.
  */
+/** Rating order, computed once per catalogue and shared by every band. */
+const ratingOrderCache = new WeakMap<readonly Title[], Title[]>()
+
+function ratingOrdered(movies: readonly Title[]): Title[] {
+  const cached = ratingOrderCache.get(movies)
+  if (cached) return cached
+  const sorted = [...movies].sort(
+    (a, b) => (b.rating ?? 0) - (a.rating ?? 0) || b.addedAt - a.addedAt || a.id - b.id,
+  )
+  ratingOrderCache.set(movies, sorted)
+  return sorted
+}
+
 export function pickBandTitles(
   movies: readonly Title[],
   band: BandDefinition,
   count = BAND_COUNT,
 ): Title[] {
-  const byRating = (a: Title, b: Title) =>
-    (b.rating ?? 0) - (a.rating ?? 0) || b.addedAt - a.addedAt || a.id - b.id
-  const named = movies.filter((movie) => matchesBandName(movie, band)).sort(byRating)
-  const tagged = movies
-    .filter((movie) => !matchesBandName(movie, band) && matchesBandText(movie, band))
-    .sort(byRating)
-  // Some libraries tag almost nothing, so the line-up is topped up from names
-  // that carry the genre's vocabulary rather than left short of a full band.
-  const hinted = movies
-    .filter(
-      (movie) =>
-        !matchesBandName(movie, band) && !matchesBandText(movie, band) && band.hints.test(movie.name),
-    )
-    .sort(byRating)
+  // One ordered pass replaces three filter-and-sort passes per band, and the
+  // order is cached per catalogue: the landing page builds two bands, so this
+  // used to sort forty-six thousand titles six times on its first paint.
+  const named: Title[] = []
+  const tagged: Title[] = []
+  const hinted: Title[] = []
+  for (const movie of ratingOrdered(movies)) {
+    if (matchesBandName(movie, band)) named.push(movie)
+    else if (matchesBandText(movie, band)) tagged.push(movie)
+    // Some libraries tag almost nothing, so the line-up is topped up from names
+    // that carry the genre's vocabulary rather than left short of a full band.
+    else if (band.hints.test(movie.name)) hinted.push(movie)
+  }
 
   const out: Title[] = []
   const seen = new Set<number>()

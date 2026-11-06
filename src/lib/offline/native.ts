@@ -20,6 +20,7 @@ export interface NativeEnqueue {
   season?: number
   episode?: number
   url: string
+  altUrl?: string
   mime?: string
   lookahead?: boolean
   byteLimit?: number
