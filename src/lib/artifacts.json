@@ -1,20 +1,20 @@
 {
-  "version": "1.1.23",
+  "version": "1.1.24",
   "phone": {
-    "file": "/files/vntera-1.1.23.apk",
-    "bytes": 8317150,
+    "file": "/files/vntera-1.1.24.apk",
+    "bytes": 8318534,
     "available": true
   },
   "tv": {
-    "file": "/files/vntera-tv-1.1.23.apk",
-    "bytes": 8336954,
+    "file": "/files/vntera-tv-1.1.24.apk",
+    "bytes": 8338470,
     "available": true
   },
   "desktop": {
-    "file": "/files/Vntera-Setup-1.1.23.exe",
-    "url": "https://github.com/mohamadhassoun-dev/Vntera-TV/releases/download/v1.1.23/Vntera-Setup-1.1.23.exe",
+    "file": "/files/Vntera-Setup-1.1.24.exe",
+    "url": "https://github.com/mohamadhassoun-dev/Vntera-TV/releases/download/v1.1.24/Vntera-Setup-1.1.24.exe",
     "selfHosted": false,
-    "bytes": 124792695,
+    "bytes": 124792726,
     "available": true
   }
 }

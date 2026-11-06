@@ -51,6 +51,8 @@ public class DownloadForegroundService extends Service {
     private static final int NOTIFICATION_PROGRESS = 4101;
     private static final int NOTIFICATION_EVENT_BASE = 4200;
     private static final long RETRY_DELAY_MS = 5_000L;
+    /** How many times one transfer may re-open after the panel drops the stream. */
+    private static final int MAX_RESUMES = 40;
 
     private static final String ACTION_KICK = "com.vntera.iptv.DOWNLOAD_KICK";
     private static final String ACTION_PLAYBACK = "com.vntera.iptv.DOWNLOAD_PLAYBACK";
@@ -248,67 +250,111 @@ public class DownloadForegroundService extends Service {
             final String altUrl = job.optString("altUrl", "");
             if (!altUrl.isEmpty() && !altUrl.equals(url)) candidates.add(altUrl);
 
-            IOException lastError = null;
-            for (String candidate : candidates) {
+            // The panel closes a long stream when it feels like it: a 277 MB
+            // episode is routinely cut around a hundred megabytes in. Losing the
+            // socket is not a failed download, so the transfer re-opens with a
+            // Range request from the last byte it kept and carries on, only
+            // calling the row failed when a connection makes no progress at all.
+            long done = already;
+            int resumes = 0;
+            while (true) {
+                IOException failure = null;
+                connection = null;
+                for (String candidate : new ArrayList<>(candidates)) {
+                    try {
+                        connection = open(candidate, done);
+                        // Whatever answered stays first for the next resume.
+                        candidates.remove(candidate);
+                        candidates.add(0, candidate);
+                        break;
+                    } catch (IOException error) {
+                        failure = error;
+                        connection = null;
+                    }
+                }
+                if (connection == null) {
+                    throw failure != null ? failure : new IOException("There is no address to download from");
+                }
+
+                int status = connection.getResponseCode();
+                boolean resumed = status == 206 && done > 0;
+                if (!resumed && done > 0) {
+                    // The server ignored the Range header: this file starts again.
+                    done = 0;
+                    if (part.exists() && !part.delete()) Log.w(TAG, "Could not restart the file");
+                }
+                long length = connection.getContentLengthLong();
+                total = length > 0 ? done + length : 0;
+                final long totalBytes = total;
+                final long startAt = done;
+                DownloadStore.update(this, id, new DownloadStore.JobWriter() {
+                    @Override
+                    public void apply(JSONObject row) throws JSONException {
+                        row.put("bytesTotal", totalBytes);
+                        row.put("bytesDone", startAt);
+                    }
+                });
+
+                long written = done;
+                IOException dropped = null;
                 try {
-                    connection = open(candidate, already);
-                    break;
+                    input = connection.getInputStream();
+                    output = new FileOutputStream(part, done > 0);
+                    byte[] buffer = new byte[64 * 1024];
+                    long lastNotify = 0;
+                    long lastSave = System.currentTimeMillis();
+                    int read;
+                    while ((read = input.read(buffer)) > 0) {
+                        if (stopped || DownloadStore.isPlaybackActive()) {
+                            output.flush();
+                            saveProgress(id, part.length(), total, DownloadStore.STATE_QUEUED);
+                            return;
+                        }
+                        output.write(buffer, 0, read);
+                        written += read;
+                        if (byteLimit > 0 && written >= byteLimit) break;
+                        long now = System.currentTimeMillis();
+                        if (now - lastNotify > 500) {
+                            lastNotify = now;
+                            updateProgressNotification(title, written, total);
+                        }
+                        if (now - lastSave > 2_000) {
+                            lastSave = now;
+                            saveProgress(id, part.length(), total, DownloadStore.STATE_DOWNLOADING);
+                        }
+                    }
                 } catch (IOException error) {
-                    lastError = error;
+                    // Bytes already written stay on disk; only a connection that
+                    // produced nothing is worth reporting as a failure.
+                    dropped = written > done ? null : error;
+                } finally {
+                    input = closeQuietly(input);
+                    output = closeQuietly(output);
+                    if (connection != null) connection.disconnect();
                     connection = null;
                 }
-            }
-            if (connection == null) {
-                throw lastError != null ? lastError : new IOException("There is no address to download from");
-            }
+                if (dropped != null) throw dropped;
 
-            int status = connection.getResponseCode();
-            if (status != 206 && already > 0) {
-                // The server ignored the Range header: this file starts again.
-                already = 0;
-                if (part.exists() && !part.delete()) Log.w(TAG, "Could not restart the file");
-            }
-            long length = connection.getContentLengthLong();
-            total = length > 0 ? already + length : 0;
-            final long totalBytes = total;
-            final long startAt = already;
-            DownloadStore.update(this, id, new DownloadStore.JobWriter() {
-                @Override
-                public void apply(JSONObject row) throws JSONException {
-                    row.put("bytesTotal", totalBytes);
-                    row.put("bytesDone", startAt);
+                done = written;
+                saveProgress(id, part.length(), total, DownloadStore.STATE_DOWNLOADING);
+                boolean complete = byteLimit > 0 ? done >= byteLimit : (total <= 0 || done >= total);
+                if (complete) break;
+
+                resumes += 1;
+                if (resumes > MAX_RESUMES) {
+                    throw new IOException("The connection kept dropping at " + done + " of " + total + " bytes");
                 }
-            });
-
-            input = connection.getInputStream();
-            output = new FileOutputStream(part, already > 0);
-            byte[] buffer = new byte[64 * 1024];
-            long done = already;
-            long lastNotify = 0;
-            long lastSave = System.currentTimeMillis();
-            int read;
-            while ((read = input.read(buffer)) > 0) {
+                Log.i(TAG, "Stream dropped at " + done + " bytes; resuming (" + resumes + ")");
+                try {
+                    Thread.sleep(400L * Math.min(resumes, 5));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
                 if (stopped || DownloadStore.isPlaybackActive()) {
-                    output.flush();
                     saveProgress(id, part.length(), total, DownloadStore.STATE_QUEUED);
                     return;
                 }
-                output.write(buffer, 0, read);
-                done += read;
-                if (byteLimit > 0 && done >= byteLimit) break;
-                long now = System.currentTimeMillis();
-                if (now - lastNotify > 500) {
-                    lastNotify = now;
-                    updateProgressNotification(title, done, total);
-                }
-                if (now - lastSave > 2_000) {
-                    lastSave = now;
-                    saveProgress(id, part.length(), total, DownloadStore.STATE_DOWNLOADING);
-                }
             }
-            output.flush();
-            output.close();
-            output = null;
 
             File destination = byteLimit > 0 && (total <= 0 || part.length() < total)
                     ? new File(target.getAbsolutePath() + ".buffer")
@@ -428,6 +474,31 @@ public class DownloadForegroundService extends Service {
             return connection;
         }
         throw new IOException("The server kept redirecting");
+    }
+
+    private static InputStream closeQuietly(InputStream stream) {
+        if (stream == null) return null;
+        try {
+            stream.close();
+        } catch (IOException ignored) {
+            // The socket is already gone.
+        }
+        return null;
+    }
+
+    private static FileOutputStream closeQuietly(FileOutputStream stream) {
+        if (stream == null) return null;
+        try {
+            stream.flush();
+        } catch (IOException ignored) {
+            // Nothing left to flush.
+        }
+        try {
+            stream.close();
+        } catch (IOException ignored) {
+            // Nothing left to close.
+        }
+        return null;
     }
 
     private static String hostOf(String address) {
