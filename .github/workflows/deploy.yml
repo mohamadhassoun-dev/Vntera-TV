@@ -58,7 +58,9 @@ jobs:
           RSYNC_RSH="ssh -i ~/.ssh/deploy_key -p $SSH_PORT -o StrictHostKeyChecking=accept-new"
           export RSYNC_RSH
           rsync -az --delete --itemize-changes dist/ "$SSH_USER@$SSH_HOST:domains/movies.vntera.com/public_html/"
-          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'mkdir -p domains/movies.vntera.com/public_html/downloads'
+          # The Windows installer is too large for git, so it lives in
+          # ~/deliverables and is copied in after every publish.
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'set -e; cd domains/movies.vntera.com/public_html; mkdir -p downloads; cp -f ~/deliverables/downloads/*.exe downloads/ 2>/dev/null || true; ls downloads | head -5'
 
       - name: Verify the live site
         run: |
