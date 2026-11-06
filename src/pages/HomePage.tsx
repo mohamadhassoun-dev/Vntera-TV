@@ -17,6 +17,7 @@ import { SectionHeading } from '../components/Badges'
 import { ShortcutEditor } from '../components/ShortcutEditor'
 import { ContinueRail, PosterRail, Rail, ShortcutChannelRail, TopTenRail } from '../components/Rails'
 import { HorrorBand } from '../components/HorrorBand'
+import { GenreBand } from '../components/GenreBand'
 import { Icon } from '../components/Icons'
 import { usePullToRefresh } from '../lib/hooks'
 import { detectFormFactor } from '../lib/platform'
@@ -36,6 +37,7 @@ import { musicChannelTitles } from '../lib/musicChannels'
 import { arabicChannelFamilies } from '../lib/arabicChannels'
 import { isHiddenFromHome } from '../lib/hidden'
 import { pickHorrorTitles } from '../lib/horror'
+import { BANDS, pickBandTitles } from '../lib/genreBands'
 import { categoriesWithCounts, useCatalog } from '../store/catalog'
 import { defaultShortcutItems, resolveShortcuts, useShortcuts } from '../store/shortcuts'
 import { useHeroHistory } from '../store/heroHistory'
@@ -57,6 +59,8 @@ interface HomeRows {
   topTen: Title[]
   brands: Array<{ brand: HomeRailBrand; titles: Title[] }>
   horror: Title[]
+  action: Title[]
+  drama: Title[]
   kids: Title[]
   anime: Title[]
   blockbusters: Title[]
@@ -123,6 +127,15 @@ export function computeHomeRows(
   // rails fill up: the same poster must not appear twice down the page.
   const horror = pickHorrorTitles(movies)
   reserveTitles(usage, horror)
+  // The Action and Drama bands are curated line-ups too, so they are reserved
+  // before the rotating rails fill up: no poster should appear twice.
+  // A band is a wall of posters, so it only draws from titles that have one.
+  const bandPool = movies.filter((movie) => movie.hasArtwork)
+  // Three spare titles let a band drop a broken poster and still show 24.
+  const action = pickBandTitles(bandPool, BANDS.action, 27)
+  reserveTitles(usage, action)
+  const drama = pickBandTitles(bandPool, BANDS.drama, 27)
+  reserveTitles(usage, drama)
   const topTen = take(movies, 'top-ten', TOP_TEN_COUNT)
   const brands = BRAND_RAIL_ORDER.map((brand) => {
     const titles = take(
@@ -144,7 +157,19 @@ export function computeHomeRows(
   const fresh = selectUniqueNewTitles(recentMovies, trendingMovies, weekIndex, RAIL_LIMIT, usage)
   const popularRail = take(popularPool, 'popular', RAIL_LIMIT)
 
-  const rows: HomeRows = { hero, topTen, brands, horror, kids, anime, blockbusters, fresh, popular: popularRail }
+  const rows: HomeRows = {
+    hero,
+    topTen,
+    brands,
+    horror,
+    action,
+    drama,
+    kids,
+    anime,
+    blockbusters,
+    fresh,
+    popular: popularRail,
+  }
 
   byWeek.set(cacheKey, rows)
   return rows
@@ -391,6 +416,16 @@ export default function HomePage() {
               ) : null}
               {/* The page's only Horror section, right after Netflix and Prime Video. */}
               {index === 1 && rows.horror.length ? <HorrorBand titles={rows.horror} /> : null}
+              {/* Action sits between IMDb and WWE, the middle of the brand rows. */}
+              {index === 4 && rows.action.length ? (
+                <GenreBand
+                  label={BANDS.action.label}
+                  titles={rows.action}
+                  href={`/movies?genre=${encodeURIComponent(BANDS.action.genre)}`}
+                  background={BANDS.action.background}
+                  accent={BANDS.action.accent}
+                />
+              ) : null}
             </Fragment>
           ))}
 
@@ -400,6 +435,17 @@ export default function HomePage() {
 
           {rows.anime.length ? (
             <PosterRail titles={rows.anime} lead={<ProviderLogoCard provider="anime" />} arrows={false} />
+          ) : null}
+
+          {/* Drama closes the curated bands, between Anime and Music. */}
+          {rows.drama.length ? (
+            <GenreBand
+              label={BANDS.drama.label}
+              titles={rows.drama}
+              href={`/movies?genre=${encodeURIComponent(BANDS.drama.genre)}`}
+              background={BANDS.drama.background}
+              accent={BANDS.drama.accent}
+            />
           ) : null}
 
           {music.length ? (

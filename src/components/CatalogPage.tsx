@@ -7,6 +7,8 @@ import { SectionHeading } from './Badges'
 import { useCatalog } from '../store/catalog'
 import { matchesQuality } from '../lib/normalize'
 import { matchesGenre } from '../lib/horror'
+import { BANDS, matchesBandGenre } from '../lib/genreBands'
+import { Select } from './Select'
 import type { Title } from '../types'
 
 type Kind = 'movie' | 'series'
@@ -21,36 +23,8 @@ const SORTS: Array<{ key: SortKey; label: string }> = [
 
 const PAGE = 42
 
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  options: Array<{ value: string; label: string }>
-}) {
-  return (
-    <label className="relative flex shrink-0 items-center gap-1.5 rounded-[3px] border border-stroke bg-layer-1 pl-2.5 pr-1 text-[11px] text-ink-soft">
-      <span className="font-bold uppercase tracking-wider text-ink-mute">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="max-w-[9.5rem] cursor-pointer appearance-none bg-transparent py-2 pr-5 text-[12px] font-semibold text-white"
-        aria-label={label}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value} className="bg-layer-2 text-white">
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <Icon name="chevronDown" size={13} className="pointer-events-none absolute right-1.5 text-ink-mute" />
-    </label>
-  )
-}
+/** Genres the app curates itself, so they are always offered. */
+const CANONICAL_GENRES = ['Action', 'Drama', 'Horror'] as const
 
 export function CatalogPage({ kind }: { kind: Kind }) {
   const snapshot = useCatalog((s) => s.snapshot)
@@ -72,21 +46,56 @@ export function CatalogPage({ kind }: { kind: Kind }) {
     if (urlGenre) setGenre(urlGenre)
   }, [urlGenre])
 
+  // Genre options carry a count, merge the panel's own tags with the genres the
+  // app curates itself (Action, Drama, Horror), and always offer the one the
+  // page was opened with so a genre link never lands on an unselectable filter.
   const genres = useMemo(() => {
     const counts = new Map<string, number>()
-    for (const t of pool) for (const g of t.genres) if (g) counts.set(g, (counts.get(g) ?? 0) + 1)
-    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 18).map(([g]) => g)
-    // "Horror" is a canonical genre the catalogue resolves itself (curated
-    // line-up plus horror-tagged titles), so it is always offered — and it
-    // stays visible when the page is opened straight from a genre link.
-    const requested = genre !== 'all' && !top.some((g) => g.toLowerCase() === genre.toLowerCase())
-    return requested ? [genre, ...top] : top
+    const add = (name: string) => counts.set(name, (counts.get(name) ?? 0) + 1)
+    for (const t of pool) {
+      const seen = new Set<string>()
+      for (const g of t.genres) {
+        const label = g.trim()
+        if (!label || seen.has(label.toLowerCase())) continue
+        seen.add(label.toLowerCase())
+        add(label)
+      }
+      for (const band of Object.values(BANDS)) {
+        if (seen.has(band.genre.toLowerCase())) continue
+        if (matchesBandGenre(t, band.genre)) {
+          seen.add(band.genre.toLowerCase())
+          add(band.genre)
+        }
+      }
+    }
+    for (const name of CANONICAL_GENRES) {
+      if (![...counts.keys()].some((key) => key.toLowerCase() === name.toLowerCase())) counts.set(name, 0)
+    }
+    const list = [...counts.entries()]
+      .filter(([name, count]) => count > 0 || name.toLowerCase() === genre.toLowerCase())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name]) => name)
+    const requested = genre !== 'all' && !list.some((g) => g.toLowerCase() === genre.toLowerCase())
+    return requested ? [genre, ...list] : list
   }, [pool, genre])
+
+  const genreCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const t of pool) {
+      for (const g of t.genres) counts.set(g.trim().toLowerCase(), (counts.get(g.trim().toLowerCase()) ?? 0) + 1)
+    }
+    for (const band of Object.values(BANDS)) {
+      if (counts.has(band.genre.toLowerCase())) continue
+      const total = pool.filter((t) => matchesBandGenre(t, band.genre)).length
+      if (total) counts.set(band.genre.toLowerCase(), total)
+    }
+    return counts
+  }, [pool])
 
   const years = useMemo(() => {
     const set = new Set<number>()
     for (const t of pool) if (t.year) set.add(t.year)
-    return [...set].sort((a, b) => b - a).slice(0, 24)
+    return [...set].sort((a, b) => b - a)
   }, [pool])
 
   const filtered = useMemo(() => {
@@ -96,7 +105,12 @@ export function CatalogPage({ kind }: { kind: Kind }) {
       if (year !== 'all' && String(t.year) !== year) return false
       if (!matchesQuality(t, quality)) return false
       if (language !== 'all' && !t.languages.includes(language)) return false
-      if (q && !t.name.toLowerCase().includes(q)) return false
+      // A search should find a title by its name, its section, its genre or
+      // someone in the cast, not only by the first of those.
+      if (q) {
+        const haystack = `${t.name} ${t.categoryName} ${t.genres.join(' ')} ${t.cast.join(' ')}`.toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
       return true
     })
     list.sort((a, b) => {
@@ -156,23 +170,33 @@ export function CatalogPage({ kind }: { kind: Kind }) {
             </div>
           </div>
 
-          <div className="no-scrollbar mt-5 flex items-center gap-1.5 overflow-x-auto pb-1">
-            <FilterSelect
+          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            <Select
               label="Genre"
               value={genre}
               onChange={setGenre}
-              options={[{ value: 'all', label: 'All genres' }, ...genres.map((g) => ({ value: g, label: g }))]}
+              compact
+              options={[
+                { value: 'all', label: 'All genres', meta: pool.length ? `${pool.length}` : undefined },
+                ...genres.map((g) => ({
+                  value: g,
+                  label: g,
+                  meta: genreCounts.get(g.toLowerCase()) ? `${genreCounts.get(g.toLowerCase())}` : undefined,
+                })),
+              ]}
             />
-            <FilterSelect
+            <Select
               label="Year"
               value={year}
               onChange={setYear}
+              compact
               options={[{ value: 'all', label: 'Any year' }, ...years.map((y) => ({ value: String(y), label: String(y) }))]}
             />
-            <FilterSelect
+            <Select
               label="Quality"
               value={quality}
               onChange={setQuality}
+              compact
               options={[
                 { value: 'all', label: 'Any quality' },
                 { value: '4K', label: '4K UHD' },
@@ -180,10 +204,11 @@ export function CatalogPage({ kind }: { kind: Kind }) {
                 { value: 'HD', label: 'HD' },
               ]}
             />
-            <FilterSelect
+            <Select
               label="Language"
               value={language}
               onChange={setLanguage}
+              compact
               options={[
                 { value: 'all', label: 'Any language' },
                 { value: 'en', label: 'English' },
@@ -192,13 +217,21 @@ export function CatalogPage({ kind }: { kind: Kind }) {
                 { value: 'tr', label: 'Turkish' },
               ]}
             />
-            <FilterSelect
+            <Select
               label="Sort"
               value={sort}
               onChange={(v) => setSort(v as SortKey)}
+              compact
+              align="right"
+              className="col-span-2 sm:col-span-1"
               options={SORTS.map((s) => ({ value: s.key, label: s.label }))}
             />
-            {(genre !== 'all' || year !== 'all' || quality !== 'all' || language !== 'all' || query) && (
+          </div>
+          {(genre !== 'all' || year !== 'all' || quality !== 'all' || language !== 'all' || query) && (
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="text-[11px] text-ink-mute">
+                {filtered.length.toLocaleString()} {filtered.length === 1 ? 'title' : 'titles'}
+              </p>
               <button
                 className="tab !text-crimson"
                 onClick={() => {
@@ -210,10 +243,10 @@ export function CatalogPage({ kind }: { kind: Kind }) {
                 }}
                 data-nav="true"
               >
-                Reset
+                Reset filters
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 

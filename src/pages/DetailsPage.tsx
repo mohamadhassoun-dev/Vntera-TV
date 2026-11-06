@@ -5,6 +5,7 @@ import { Icon } from '../components/Icons'
 import { EmptyState } from '../components/Feedback'
 import { LiveBadge, QualityBadge, RatingBadge } from '../components/Badges'
 import { PosterRail } from '../components/Rails'
+import { Select } from '../components/Select'
 import { useCatalog } from '../store/catalog'
 import { useDetails } from '../store/details'
 import { useLibrary } from '../store/library'
@@ -365,24 +366,19 @@ export default function DetailsPage() {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <h2 className="section-title">Episodes</h2>
               <div className="flex items-center gap-2">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-ink-mute" htmlFor="season">
-                  Season
-                </label>
-                <div className="relative">
-                  <select
-                    id="season"
-                    value={season}
-                    onChange={(e) => setSeason(Number(e.target.value))}
-                    className="min-w-[8rem] cursor-pointer appearance-none rounded-[3px] border border-stroke bg-layer-1 py-1.5 pl-2.5 pr-8 text-[12px] font-semibold"
-                  >
-                    {seasons.map((s) => (
-                      <option key={s.number} value={s.number} className="bg-layer-2">
-                        Season {s.number} · {s.episodes.length} ep
-                      </option>
-                    ))}
-                  </select>
-                  <Icon name="chevronDown" size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-mute" />
-                </div>
+                <Select
+                  label="Season"
+                  value={String(season)}
+                  onChange={(value) => setSeason(Number(value))}
+                  align="right"
+                  compact
+                  className="min-w-[9.5rem]"
+                  options={seasons.map((s) => ({
+                    value: String(s.number),
+                    label: `Season ${s.number}`,
+                    meta: `${s.episodes.length} ep`,
+                  }))}
+                />
               </div>
             </div>
 

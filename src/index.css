@@ -1073,6 +1073,93 @@ html[data-form-factor='tv'] .rail-horror .rail > .poster-card.is-focused {
   box-shadow: 0 0 0 3px rgba(255, 39, 51, 0.5);
 }
 
+/* "Action Movies" and "Drama Movies": the Horror band's shape, artwork and
+   accent supplied per section, so the three bands read as one family. */
+.rail-band {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--band-accent, #e50914) 32%, transparent);
+  background:
+    linear-gradient(180deg, rgba(6, 6, 8, 0.46) 0%, rgba(6, 6, 8, 0.74) 100%),
+    var(--band-art) center / cover no-repeat;
+  padding: 1.05rem 0.85rem 1.2rem;
+}
+@media (min-width: 768px) {
+  .rail-band {
+    padding: 1.25rem 1.1rem 1.4rem;
+  }
+}
+.rail-band::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(115% 130% at 50% 38%, transparent 30%, rgba(2, 2, 4, 0.8) 100%);
+  pointer-events: none;
+}
+.band-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0 0 0.15rem 0.15rem;
+  border-radius: 4px;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--band-accent, #ff6b35);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--band-accent, #e50914) 55%, transparent);
+}
+@media (min-width: 768px) {
+  .band-heading {
+    font-size: 1.6rem;
+  }
+}
+.band-heading-arrow {
+  transition: transform 0.2s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .band-heading:hover .band-heading-arrow {
+    transform: translateX(3px);
+  }
+}
+.rail-band .rail > .poster-card {
+  width: 9.632rem;
+  border-radius: 8px;
+  border-color: color-mix(in srgb, var(--band-accent, #e50914) 60%, transparent);
+}
+.rail-band .rail > .poster-card > div:first-child {
+  border-radius: 7px;
+}
+@media (min-width: 768px) {
+  .rail-band .rail > .poster-card {
+    width: 11.76rem;
+  }
+}
+@media (min-width: 1200px) {
+  .rail-band .rail > .poster-card {
+    width: 12.99rem;
+  }
+}
+html[data-form-factor='tv'] .rail-band .rail > .poster-card {
+  width: 13.44rem;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rail-band .rail > .poster-card:hover {
+    position: relative;
+    z-index: 4;
+    border-color: var(--band-accent, #ff6b35);
+    transform: translateY(-2px);
+  }
+}
+html[data-form-factor='tv'] .rail-band .rail > .poster-card:focus,
+html[data-form-factor='tv'] .rail-band .rail > .poster-card:focus-visible,
+html[data-form-factor='tv'] .rail-band .rail > .poster-card.is-focused {
+  border-color: var(--band-accent, #ff6b35);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--band-accent, #e50914) 50%, transparent);
+}
+
 /* The hero shortlist answers the remote the same way a rail does: the card
    under the D-pad grows and takes the crimson frame. */
 html[data-form-factor='tv'] .tv-hero-picks .poster-card {

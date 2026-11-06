@@ -1,4 +1,5 @@
 import type { Title } from '../types'
+import { matchesBandGenre } from './genreBands'
 
 /** The panel's Horror Movies line-up, in the order it was asked for. The
  *  reseller's movie categories are provider-based (Netflix, Prime, …), so this
@@ -59,6 +60,9 @@ export function pickHorrorTitles(movies: readonly Title[]): Title[] {
 export function matchesGenre(title: Title, genre: string): boolean {
   if (genre === 'all') return true
   if (/^horror$/i.test(genre)) return isHorrorTitle(title)
+  // Action and Drama are curated by the homepage bands, which know the titles
+  // the panel never tagged, so the filter uses the same definition.
+  if (matchesBandGenre(title, genre)) return true
   const wanted = genre.toLowerCase()
   return title.genres.some((g) => g.toLowerCase() === wanted)
 }

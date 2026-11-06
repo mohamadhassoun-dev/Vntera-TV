@@ -43,11 +43,14 @@ export const PosterCard = memo(function PosterCard({
   progress,
   badge,
   priority,
+  onArtFail,
 }: {
   title: Title
   progress?: ProgressEntry
   badge?: React.ReactNode
   priority?: boolean
+  /** Lets a rail swap a broken poster for the next title in its line-up. */
+  onArtFail?: () => void
 }) {
   const inList = useLibrary((s) => s.isInList(title.kind === 'live' ? 'live' : title.kind, title.id))
   const hideDates = useContext(HideDatesContext)
@@ -67,7 +70,10 @@ export const PosterCard = memo(function PosterCard({
           title={title.name}
           seed={`${title.id}-${title.name}`}
           priority={priority}
-          onFail={() => setArtFailed(true)}
+          onFail={() => {
+            setArtFailed(true)
+            onArtFail?.()
+          }}
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.06]"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent opacity-80" />

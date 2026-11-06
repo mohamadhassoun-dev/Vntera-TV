@@ -190,10 +190,10 @@ export default function WatchPage() {
     )
   }
 
-  if (!introDone) return <IntroPreroll title={title.name} onDone={() => setIntroDone(true)} />
-
   return (
     <div className="fixed inset-0 z-[60] bg-black">
+      {/* The film buffers underneath the brand sting, muted, so the sting never
+          costs the viewer a second download when it ends. */}
       <Player
         src={src}
         srcAlt={altSrc}
@@ -218,7 +218,9 @@ export default function WatchPage() {
         editions={settings.quality === 'auto' ? editionOptions : editionOptions}
         liveProgramme={liveNow ? { title: liveNow.title, start: liveNow.start, end: liveNow.end } : undefined}
         onStall={kind === 'live' ? undefined : dropToOneLighterEdition}
+        muted={!introDone}
       />
+      {!introDone ? <IntroPreroll title={title.name} onDone={() => setIntroDone(true)} /> : null}
     </div>
   )
 }

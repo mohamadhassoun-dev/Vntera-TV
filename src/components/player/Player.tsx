@@ -39,6 +39,10 @@ interface PlayerProps {
   liveProgramme?: { title: string; start: number; end: number }
   /** Called when a VOD stream stalls; return true if a lower edition was picked. */
   onStall?: () => boolean
+  /** Start silent (the brand sting is playing over a preloading picture). */
+  startMuted?: boolean
+  /** The sting has finished: reveal the picture and restore sound. */
+  muted?: boolean
 }
 
 interface TrackOption {
@@ -103,6 +107,7 @@ export function Player({
   editions,
   liveProgramme,
   onStall,
+  muted: externallyMuted,
 }: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -135,6 +140,15 @@ export function Player({
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(1)
   const [muted, setMuted] = useState(false)
+  /** The picture keeps loading behind the brand sting, with the sound held off. */
+  const silenceForIntro = Boolean(externallyMuted)
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (silenceForIntro) video.muted = true
+    else video.muted = volume === 0
+  }, [silenceForIntro, volume])
   const [rate, setRate] = useState(1)
   const [levels, setLevels] = useState<Level[]>([])
   const [level, setLevel] = useState(-1)
@@ -662,6 +676,15 @@ export function Player({
       setTurnOverride(null)
       return
     }
+    // One control on a handset: fill the screen and lay the picture landscape.
+    // A second press leaves both, which is what the old rotate button did on
+    // its own — two buttons for one idea.
+    if (touchSurface) {
+      setCinema(true)
+      setTurnOverride(true)
+      reveal()
+      return
+    }
     // A WebView shell accepts requestFullscreen() and then cancels the platform
     // fullscreen view outright (Capacitor's onShowCustomView hides it at once), so
     // the packaged app has only the in-app surface. On an upright handset that
@@ -669,7 +692,7 @@ export function Player({
     // when it turns, which is what fullscreen means on a phone.
     if (isNativeShell()) {
       setCinema(true)
-      if (portrait) setTurnOverride(true)
+      setTurnOverride(true)
       reveal()
       return
     }
@@ -695,16 +718,6 @@ export function Player({
     setCinema(true)
     reveal()
   }, [cinema, portrait, reveal])
-
-  /**
-   * "Turn the picture": expand into the cinema surface and lay the video
-   * landscape even while the handset is upright, then lay it upright again.
-   */
-  const toggleRotation = useCallback(() => {
-    setCinema(true)
-    setTurnOverride(!pictureTurned(cinema, turnOverride, portrait))
-    reveal()
-  }, [cinema, portrait, turnOverride, reveal])
 
   // Leaving the player also leaves cinema mode.
   useEffect(() => {
@@ -1028,17 +1041,35 @@ export function Player({
         </div>
       ) : null}
 
-      {/* error */}
+      {/* error — above the controls layer, or its buttons would be dead taps */}
       {error ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/85 px-6 text-center">
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/85 px-6 text-center">
           <Icon name="alert" size={34} className="text-crimson" />
           <p className="max-w-md text-sm text-ink-soft">{error}</p>
-          <div className="flex gap-2">
-            <button className="btn btn-primary" onClick={retry}>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button type="button" className="btn btn-primary" onClick={retry} data-nav="true">
               <Icon name="refresh" size={16} /> Retry
             </button>
-            <button className="btn btn-secondary" onClick={onExit}>
+            <button type="button" className="btn btn-secondary" onClick={onExit} data-nav="true">
               Go back
+            </button>
+          </div>
+          <div className="mt-1 flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              className="rounded-[3px] border border-white/20 bg-black/40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-soft hover:text-white"
+              onClick={() => setMenu(menu === 'quality' ? 'none' : 'quality')}
+              data-nav="true"
+            >
+              <Icon name="sliders" size={13} className="mr-1 inline" /> Try another quality
+            </button>
+            <button
+              type="button"
+              className="rounded-[3px] border border-white/20 bg-black/40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-soft hover:text-white"
+              onClick={() => void togglePip()}
+              data-nav="true"
+            >
+              <Icon name="pip" size={13} className="mr-1 inline" /> Keep watching in window
             </button>
           </div>
         </div>
@@ -1397,24 +1428,12 @@ export function Player({
                   <Icon name="pip" size={18} className={pipActive ? 'text-crimson' : ''} />
                 </button>
               ) : null}
-              {touchSurface ? (
-                <button
-                  className="icon-btn !border-0 !bg-transparent"
-                  onClick={toggleRotation}
-                  data-nav="true"
-                  aria-label="Turn the picture"
-                  title="Turn the picture"
-                  aria-pressed={rotated}
-                >
-                  <Icon name="rotate" size={18} className={rotated ? 'text-crimson' : ''} />
-                </button>
-              ) : null}
               <button
                 className="icon-btn !border-0 !bg-transparent"
                 onClick={() => void toggleFullscreen()}
                 data-nav="true"
-                aria-label={expanded ? 'Exit fullscreen' : 'Fullscreen'}
-                title={expanded ? 'Exit fullscreen' : 'Fullscreen'}
+                aria-label={expanded ? 'Exit fullscreen' : touchSurface ? 'Fullscreen, landscape' : 'Fullscreen'}
+                title={expanded ? 'Exit fullscreen' : touchSurface ? 'Fullscreen and turn the picture' : 'Fullscreen'}
               >
                 <Icon name={expanded ? 'minimize' : 'maximize'} size={18} />
               </button>
@@ -1487,10 +1506,11 @@ export function Player({
                   <>
                     <MenuRow active={audioOnly} onClick={toggleAudioOnly} label="Audio only" meta="Keep sound, drop video" />
                     {!isLive ? <MenuRow active={!!pipActive} onClick={() => void togglePip()} label="Picture-in-Picture" /> : null}
-                    <MenuRow active={fullscreen} onClick={() => void toggleFullscreen()} label="Fullscreen" />
-                    {touchSurface ? (
-                      <MenuRow active={rotated} onClick={toggleRotation} label="Turn the picture" meta="Play landscape" />
-                    ) : null}
+                    <MenuRow
+                      active={fullscreen || cinema}
+                      onClick={() => void toggleFullscreen()}
+                      label={touchSurface ? 'Fullscreen · landscape' : 'Fullscreen'}
+                    />
                   </>
                 ) : null}
               </div>

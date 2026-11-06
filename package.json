@@ -1,7 +1,7 @@
 {
   "name": "vntera-iptv",
   "private": true,
-  "version": "1.1.13",
+  "version": "1.1.14",
   "type": "module",
   "description": "Vntera TV — IPTV streaming for web, Android, Android TV and Windows",
   "scripts": {
@@ -14,6 +14,7 @@
     "apk": "node scripts/build-apk.mjs",
     "qr": "node scripts/make-qr.mjs",
     "icons": "node scripts/make-icons.mjs",
+    "app-icon": "node scripts/make-app-icon.mjs",
     "desktop": "node scripts/build-desktop.mjs --dev",
     "desktop:smoke": "node scripts/build-desktop.mjs --dev --smoke",
     "desktop:build": "node scripts/build-desktop.mjs",
