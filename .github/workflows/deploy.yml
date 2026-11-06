@@ -26,8 +26,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      # `npm install` rather than `npm ci`: the lockfile is produced on Windows,
+      # where some platform-specific entries differ, and a mismatch must not be
+      # able to stop the only publisher of the live site.
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
 
       - name: Build site
         run: npm run build
