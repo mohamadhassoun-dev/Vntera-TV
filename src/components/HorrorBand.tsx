@@ -3,14 +3,14 @@ import { PosterCard } from './cards'
 import { Icon } from './Icons'
 import type { Title } from '../types'
 
-/** Two rows of three, so the six posters hang over the stage artwork. */
-const PER_ROW = 3
+/** Two rows deep, twelve posters per row, so the line-up scrolls sideways. */
+const PER_ROW = 12
 
 /**
  * The homepage's only Horror section: the stage backdrop behind the posters,
- * a 3-up / 3-down layout, and a heading that opens the Movies page with the
- * Horror genre filter already applied (the existing catalogue filter, not a
- * second page listing just these six).
+ * two rows of twelve that carry the whole line-up and scroll sideways, and a
+ * heading that opens the Movies page with the Horror genre filter already
+ * applied (the existing catalogue filter, not a second page listing just these).
  */
 export function HorrorBand({ titles }: { titles: Title[] }) {
   if (!titles.length) return null

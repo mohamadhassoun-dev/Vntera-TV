@@ -35,7 +35,7 @@ import { collectionTitles } from '../lib/collections'
 import { musicChannelTitles } from '../lib/musicChannels'
 import { arabicChannelFamilies } from '../lib/arabicChannels'
 import { isHiddenFromHome } from '../lib/hidden'
-import { HORROR_IDS } from '../lib/horror'
+import { pickHorrorTitles } from '../lib/horror'
 import { categoriesWithCounts, useCatalog } from '../store/catalog'
 import { defaultShortcutItems, resolveShortcuts, useShortcuts } from '../store/shortcuts'
 import { useHeroHistory } from '../store/heroHistory'
@@ -52,13 +52,6 @@ const WEEK_SECONDS = 7 * 86_400
 /** IMDb is not a panel category: the row curates the catalog's top-rated movies. */
 const IMDB_MIN_RATING = 6.5
 
-/** Three of those titles also lead their brand row from the third slot, so the
- *  page shows them where viewers browse and again in the horror row. */
-const BRAND_PINS: Partial<Record<HomeRailBrand, readonly number[]>> = {
-  netflix: HORROR_IDS.slice(0, 3),
-  prime: HORROR_IDS.slice(3),
-}
-
 interface HomeRows {
   hero: Title[]
   topTen: Title[]
@@ -69,26 +62,6 @@ interface HomeRows {
   blockbusters: Title[]
   fresh: Title[]
   popular: Title[]
-}
-
-/** A brand row keeps its own first two picks, then the pinned line-up in order,
- *  then the rest of this week's picks with anything already shown above it cut,
- *  so a pinned title never repeats inside its row. */
-function withPinned(
-  titles: readonly Title[],
-  pinned: readonly number[],
-  byId: ReadonlyMap<number, Title>,
-): Title[] {
-  const head = titles.slice(0, 2)
-  const seen = new Set(head.map((movie) => movie.id))
-  const inserted: Title[] = []
-  for (const id of pinned) {
-    const movie = byId.get(id)
-    if (!movie || seen.has(id)) continue
-    seen.add(id)
-    inserted.push(movie)
-  }
-  return [...head, ...inserted, ...titles.slice(2).filter((movie) => !seen.has(movie.id))]
 }
 
 /** Every rail on the page, for one week, plus the hero line-up chosen for the
@@ -146,12 +119,9 @@ export function computeHomeRows(
     .map((id) => moviesById.get(id))
     .filter((movie): movie is Title => Boolean(movie))
   reserveTitles(usage, hero)
-  // The horror line-up is placed by hand in the brand rows and repeated in its
-  // own carousel, so the rotating rails leave these six alone rather than
-  // surfacing the same poster a third time further down the page.
-  const horror = HORROR_IDS.map((id) => moviesById.get(id)).filter(
-    (movie): movie is Title => Boolean(movie),
-  )
+  // The horror carousel is its own line-up, so it is reserved before the rotating
+  // rails fill up: the same poster must not appear twice down the page.
+  const horror = pickHorrorTitles(movies)
   reserveTitles(usage, horror)
   const topTen = take(movies, 'top-ten', TOP_TEN_COUNT)
   const brands = BRAND_RAIL_ORDER.map((brand) => {
@@ -160,8 +130,7 @@ export function computeHomeRows(
       `provider-${brand}`,
       RAIL_LIMIT,
     )
-    const pinned = BRAND_PINS[brand]
-    return { brand, titles: pinned ? withPinned(titles, pinned, moviesById) : titles }
+    return { brand, titles }
   })
   // Curated rails for the panel's kids and anime sections, shaped like the
   // provider rails: wordmark card first, then this week's titles.

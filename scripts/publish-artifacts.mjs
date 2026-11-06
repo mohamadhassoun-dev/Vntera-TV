@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
-const repo = process.env.VNTERA_REPO || 'mohamadhassoun1/Vntera-TV'
+const repo = process.env.VNTERA_REPO || 'mohamadhassoun-dev/Vntera-TV'
 
 const sizeOf = (path) => (existsSync(path) ? statSync(path).size : 0)
 
