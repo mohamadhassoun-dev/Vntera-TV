@@ -420,9 +420,16 @@ const nameCache = new WeakMap<Title, string>()
 function titleName(title: Title): string {
   const cached = nameCache.get(title)
   if (cached !== undefined) return cached
-  const value = normalize(title.name)
+  // A catalogue title carries its normalised name from the build, so a launch
+  // that reads the cache does not normalise forty-six thousand names again.
+  const value = title.searchName ?? normalize(title.name)
   nameCache.set(title, value)
   return value
+}
+
+/** The same normalisation, for the catalogue build to store on each title. */
+export function normalizeTitleName(name: string): string {
+  return normalize(name)
 }
 
 /**

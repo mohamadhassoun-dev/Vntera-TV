@@ -1,6 +1,6 @@
 import type { Provider, Quality, RawCategory, RawLiveStream, RawSeries, RawVodStream, Title } from '../types'
 import { CHANNEL_ART, FEATURED_CHANNELS } from './config'
-import { BANDS, matchesBandName } from './genreBands'
+import { BANDS, matchesBandName, normalizeTitleName } from './genreBands'
 
 const QUALITY_PATTERNS: Array<{ q: Quality; re: RegExp }> = [
   { q: '4K', re: /(\b|\[|\()(4k|uhd|2160p?|hdr10?\+?|dolby\s?vision|dv)(\b|\]|\))/i },
@@ -259,6 +259,7 @@ function liveEntry(ch: RawLiveStream, ctx: BuildContext): [string, Title] {
       num: Number(ch.num) || ch.stream_id,
       genres: [categoryName],
       cast: [],
+      searchName: normalizeTitleName(name),
       watchCount: counts[`live:${ch.stream_id}`] || 0,
     }
     return [key, title]
@@ -304,6 +305,7 @@ function movieEntry(m: RawVodStream, ctx: BuildContext): [string, Title] {
       provider: detectProvider(m.name, categoryName),
       genres: [categoryName],
       cast: [],
+      searchName: normalizeTitleName(name),
       watchCount: counts[`movie:${m.stream_id}`] || 0,
     }
     return [key.toUpperCase(), title]
@@ -350,6 +352,7 @@ function seriesEntry(s: RawSeries, ctx: BuildContext): [string, Title] {
       provider: detectProvider(s.name, categoryName),
       genres: splitList(s.genre).length ? splitList(s.genre) : [categoryName],
       cast: splitList(s.cast),
+      searchName: normalizeTitleName(name),
       director: s.director,
       plot: s.plot,
       trailer: s.youtube_trailer || undefined,

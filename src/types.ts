@@ -209,6 +209,10 @@ export interface Title {
   plot?: string
   genres: string[]
   cast: string[]
+  /** Lower-case, punctuation-free name, built once with the catalogue: the
+   *  homepage genre bands match every title against it, and recomputing it for
+   *  46k titles on every cached launch was a second-long freeze. */
+  searchName?: string
   director?: string
   country?: string
   poster?: string
