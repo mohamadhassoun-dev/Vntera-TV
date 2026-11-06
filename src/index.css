@@ -36,6 +36,13 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* Chromium paints a white focus ring with this colour. It is the box users
+     see flash over a control after a tap, so the platform ring colour is made
+     transparent site-wide; our own rings name their colour explicitly. */
+  :root {
+    -webkit-focus-ring-color: rgba(0, 0, 0, 0);
+  }
+
   html {
     background: #131313;
     color-scheme: dark;
@@ -100,9 +107,32 @@
      behind, and the browser's own ring is white, so it is switched off for
      exactly those states. Keyboard users still get a ring, and it is crimson
      rather than the UA's white box. */
-  :focus:not(:focus-visible),
+  :focus,
+  :focus-within,
   :active {
     outline: none;
+  }
+
+  /* Pressable things never paint a selection, a callout or a UA control face,
+     and never flash a highlight of their own. This is the whole of the policy:
+     every click target inherits it, including the ones inside the player. */
+  button,
+  a,
+  [role='button'],
+  [data-nav='true'],
+  input[type='range'],
+  summary,
+  label {
+    -webkit-appearance: none;
+    appearance: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  button::-moz-focus-inner {
+    border: 0;
   }
 
   /* Spatial navigation focus ring: a crimson frame, never the white box. It is
@@ -118,9 +148,23 @@
   /* Keyboard focus stays visible, and it is crimson. Declared after the
      resting transparent outline so it wins on nav targets too; fields are
      skipped because they frame themselves when they take the caret. */
-  html :focus-visible {
-    outline: 2px solid rgba(229, 9, 20, 0.92);
-    outline-offset: 2px;
+  /* A keyboard ring is a desktop affordance. Gating it behind a fine pointer
+     keeps it off every touch surface, which is where the white box appeared. */
+  @media (pointer: fine) {
+    html :focus-visible {
+      outline: 2px solid rgba(229, 9, 20, 0.92);
+      outline-offset: 2px;
+    }
+  }
+
+  /* Belt and braces for hybrids that report a coarse primary pointer: a press
+     or a tap can never draw an outline, whatever focused the element. */
+  @media (pointer: coarse) {
+    :focus,
+    :focus-visible,
+    :active {
+      outline: none;
+    }
   }
 
   html input:focus-visible,

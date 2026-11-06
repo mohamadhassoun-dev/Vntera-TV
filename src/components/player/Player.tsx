@@ -7,6 +7,7 @@ import { AudioOnlyAds } from './AudioOnlyAds'
 import { detectNetworkSpeed, slowNetworkCap } from '../../lib/editions'
 import { formatTimecode } from '../../lib/format'
 import { canCastVideo, isNativeShell, startCast } from '../../lib/platform'
+import { releaseOrientation, rotateLandscape, type RotateMode } from '../../lib/orientation'
 import { pictureTurned } from '../../lib/playerLayout'
 import { trackAxis, trackRatio } from '../../lib/seek'
 import { useWakeLock } from '../../lib/hooks'
@@ -169,6 +170,8 @@ export function Player({
   const [fullscreen, setFullscreen] = useState(false)
   /** In-app cinema mode: fills the screen and turns the picture landscape on phones. */
   const [cinema, setCinema] = useState(false)
+  /** The turn the rotate control applied, so it can undo exactly that. */
+  const [rotationMode, setRotationMode] = useState<RotateMode | null>(null)
   const [portrait, setPortrait] = useState(false)
   /** null follows the handset, true keeps the picture turned even when it is
    *  held upright, false keeps it upright. Driven by the rotate control. */
@@ -642,7 +645,18 @@ export function Player({
     return () => mq.removeEventListener('change', sync)
   }, [])
 
+  // Leaving the player must never leave the app sideways.
+  const rotationModeRef = useRef<RotateMode | null>(null)
+  useEffect(() => {
+    rotationModeRef.current = rotationMode
+  }, [rotationMode])
+  useEffect(() => () => void releaseOrientation(rotationModeRef.current), [])
+
   const expanded = cinema || fullscreen
+  /** Whether the picture is landscape right now, however it got there. */
+  const rotateActive = rotationMode !== null || (touchSurface && !portrait)
+  /** A television is already landscape; a rotate control there is only a trap. */
+  const canRotate = document.documentElement.dataset.formFactor !== 'tv'
   /** Whether the cinema surface turns the picture ninety degrees. */
   const rotated = pictureTurned(cinema, turnOverride, portrait)
 
@@ -672,9 +686,9 @@ export function Player({
     }
   }, [rotated])
 
+  /** "Make it big": real fullscreen when the host allows it. */
   const toggleFullscreen = useCallback(async () => {
     const node = containerRef.current
-    const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null
     if (document.fullscreenElement) {
       await document.exitFullscreen().catch(() => undefined)
       return
@@ -684,26 +698,6 @@ export function Player({
       setTurnOverride(null)
       return
     }
-    // One control on a handset: fill the screen and lay the picture landscape.
-    // A second press leaves both, which is what the old rotate button did on
-    // its own — two buttons for one idea.
-    if (touchSurface) {
-      setCinema(true)
-      setTurnOverride(true)
-      reveal()
-      return
-    }
-    // A WebView shell accepts requestFullscreen() and then cancels the platform
-    // fullscreen view outright (Capacitor's onShowCustomView hides it at once), so
-    // the packaged app has only the in-app surface. On an upright handset that
-    // surface is no wider than the page already is — the picture only gets big
-    // when it turns, which is what fullscreen means on a phone.
-    if (isNativeShell()) {
-      setCinema(true)
-      setTurnOverride(true)
-      reveal()
-      return
-    }
     if (document.fullscreenEnabled && node?.requestFullscreen) {
       try {
         // Some hosts (an embedded panel, a WebView whose fullscreen view is
@@ -711,21 +705,44 @@ export function Player({
         // rejecting, which used to swallow the tap: nothing happened at all.
         // Give the platform a moment, then use the in-app surface.
         const applied = await Promise.race([
-          node.requestFullscreen().then(() => true).catch(() => false),
-          new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), 700)),
+          node.requestFullscreen({ navigationUI: 'hide' }).then(() => true).catch(() => false),
+          new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), 900)),
         ])
-        if (applied && document.fullscreenElement === node) return
+        if (applied && document.fullscreenElement === node) {
+          reveal()
+          return
+        }
       } catch {
         /* fall through to the in-app player surface */
       }
     }
-    if (document.fullscreenEnabled) {
-      video?.webkitEnterFullscreen?.()
-      if (document.fullscreenElement) return
-    }
+    // Graceful fallback: a WebView or an iframe that refuses the Fullscreen API
+    // still gets the whole screen, only without the browser's own chrome.
     setCinema(true)
     reveal()
-  }, [cinema, portrait, reveal])
+  }, [cinema, reveal])
+
+  /** "Turn it right": rotate the app itself, not just the picture. */
+  const toggleRotation = useCallback(async () => {
+    if (rotationMode) {
+      setRotationMode(null)
+      setTurnOverride(null)
+      setCinema(false)
+      await releaseOrientation(rotationMode)
+      reveal()
+      return
+    }
+    const mode = await rotateLandscape()
+    setRotationMode(mode)
+    if (mode === 'css') {
+      // The host cannot rotate the viewport, so the picture is laid over.
+      setCinema(true)
+      setTurnOverride(true)
+    } else {
+      setTurnOverride(null)
+    }
+    reveal()
+  }, [rotationMode, reveal])
 
   // Leaving the player also leaves cinema mode.
   useEffect(() => {
@@ -1436,12 +1453,25 @@ export function Player({
                   <Icon name="pip" size={18} className={pipActive ? 'text-crimson' : ''} />
                 </button>
               ) : null}
+              {canRotate ? (
+                <button
+                  className="icon-btn !border-0 !bg-transparent"
+                  onClick={() => void toggleRotation()}
+                  data-nav="true"
+                  aria-label={rotateActive ? 'Turn the picture back upright' : 'Turn the picture to landscape'}
+                  title={rotateActive ? 'Rotate back to portrait' : 'Rotate to landscape'}
+                  aria-pressed={rotateActive}
+                >
+                  <Icon name="rotate" size={18} className={rotateActive ? 'text-crimson' : ''} />
+                </button>
+              ) : null}
               <button
                 className="icon-btn !border-0 !bg-transparent"
                 onClick={() => void toggleFullscreen()}
                 data-nav="true"
-                aria-label={expanded ? 'Exit fullscreen' : touchSurface ? 'Fullscreen, landscape' : 'Fullscreen'}
-                title={expanded ? 'Exit fullscreen' : touchSurface ? 'Fullscreen and turn the picture' : 'Fullscreen'}
+                aria-label={expanded ? 'Exit fullscreen' : 'Fullscreen'}
+                title={expanded ? 'Exit fullscreen' : 'Fullscreen'}
+                aria-pressed={expanded}
               >
                 <Icon name={expanded ? 'minimize' : 'maximize'} size={18} />
               </button>
@@ -1517,8 +1547,16 @@ export function Player({
                     <MenuRow
                       active={fullscreen || cinema}
                       onClick={() => void toggleFullscreen()}
-                      label={touchSurface ? 'Fullscreen · landscape' : 'Fullscreen'}
+                      label="Fullscreen"
                     />
+                    {canRotate ? (
+                      <MenuRow
+                        active={rotateActive}
+                        onClick={() => void toggleRotation()}
+                        label={rotateActive ? 'Turn back upright' : 'Turn the picture'}
+                        meta={rotateActive ? 'Portrait' : 'Landscape'}
+                      />
+                    ) : null}
                   </>
                 ) : null}
               </div>

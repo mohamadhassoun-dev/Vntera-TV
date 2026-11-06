@@ -133,7 +133,7 @@ export default function DownloadsPage() {
   const totalBytes = finished.reduce((sum, job) => sum + job.bytesDone, 0)
 
   return (
-    <div className="shell-x pb-28 pt-6 md:pb-12">
+    <div className="shell-x pb-28 pt-[5.25rem] md:pb-12 md:pt-24">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[10px] font-extrabold uppercase tracking-[0.24em] text-crimson">On this device</p>

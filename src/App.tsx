@@ -46,12 +46,12 @@ export default function App() {
   const [splashSpent, setSplashSpent] = useState(false)
   // The catalogue publishes the live channels first and the movies later, so the
   // home page is only worth showing once the whole pull has landed.
-  const catalogComplete = useCatalog((s) => s.progress >= 100)
   const catalogProgress = useCatalog((s) => s.progress)
+  const hasCatalog = useCatalog((s) => !!s.snapshot)
 
   useEffect(() => {
     void bootstrap()
-    const t = window.setTimeout(() => setBooted(true), 1600)
+    const t = window.setTimeout(() => setBooted(true), 700)
     // The loader covers the first page pull, never longer than its twenty seconds.
     const cap = window.setTimeout(() => setSplashSpent(true), SPLASH_MAX_MS)
     return () => {
@@ -122,10 +122,12 @@ export default function App() {
     return uninstall
   }, [formFactor, navigate])
 
-  // Until the whole catalogue is in, the smiley is the only thing on screen, so
-  // nobody watches an empty shell with a skeleton in it.
+  // The smiley covers the boot only: once a catalogue exists — cached, or the
+  // live section the panel publishes first — the shell paints and the pages
+  // fill themselves in. Waiting for the whole 57k-title pull here is what made
+  // a first launch feel like a dead screen for twenty seconds.
   const catalogPending =
-    (status === 'authed' || status === 'reauth') && !catalogComplete && !splashSpent
+    (status === 'authed' || status === 'reauth') && !hasCatalog && !splashSpent
   if (status === 'booting' || !booted || catalogPending) return <Splash progress={catalogProgress} />
 
   // The app download page is public: it is how a phone gets the app in the first place.

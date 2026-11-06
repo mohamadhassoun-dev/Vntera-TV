@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 /** How long the smiley loader may stay in front of the app while the catalogue
  *  boots. Home usually appears long before this; the cap keeps a slow network
  *  from hiding the page forever. */
-export const SPLASH_MAX_MS = 20_000
+export const SPLASH_MAX_MS = 7_000
 
 /**
  * Launch loader: a glowing smiley breathing in the dark while the catalogue pulls

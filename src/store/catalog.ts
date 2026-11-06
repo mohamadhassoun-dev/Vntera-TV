@@ -95,10 +95,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         const liveTask = getLiveChannels().then((r) => {
           live = r
           channels = buildCatalog({ account, live: r, vod: [], seriesRaw: [], categories: catArg }).channels
-          const partial = publish(35)
-          // Cache the live snapshot immediately: a slow 57k VOD pull must not
-          // leave the next launch with an empty catalog.
-          if (partial.channels.length) void idbSet(cacheKey(account), partial)
+          publish(35)
           set({ phase: `Live ready · ${r.length.toLocaleString()} channels` })
         })
         const vodTask = getMovies().then((r) => {
@@ -156,9 +153,17 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
           progress: 100,
           error: failed ? 'Some sections failed to refresh; showing what loaded.' : null,
         })
-        // Persist after paint: a 60k-title snapshot must not delay first render.
+        // Persist once, after paint, and off the critical path: writing a
+        // 60k-title snapshot four times while the page is arriving is what made
+        // a cold start feel heavy. An idle callback keeps the serialization out
+        // of the first paint as well.
         const finalSnapshot = get().snapshot
-        if (finalSnapshot) void idbSet(cacheKey(account), finalSnapshot)
+        if (finalSnapshot) {
+          const persist = () => void idbSet(cacheKey(account), finalSnapshot)
+          const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback
+          if (typeof idle === 'function') idle(persist)
+          else window.setTimeout(persist, 1200)
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unable to load the catalog.'
         const fallback = cached ?? get().snapshot

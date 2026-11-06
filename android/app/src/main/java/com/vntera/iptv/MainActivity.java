@@ -1,6 +1,7 @@
 package com.vntera.iptv;
 
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.WebView;
 
@@ -56,6 +57,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(OfflineDownloadsPlugin.class);
         super.onCreate(savedInstanceState);
+        suppressFocusHighlight();
         DownloadForegroundService.createChannels(this);
         applyImmersiveMode();
         handleRoute(getIntent());
@@ -86,6 +88,21 @@ public class MainActivity extends BridgeActivity {
         // full-screen state is re-applied whenever the app regains focus.
         if (hasFocus) {
             applyImmersiveMode();
+        }
+    }
+
+    /**
+     * Android paints its own white focus highlight over a View that takes focus,
+     * and a tap anywhere in the WebView focuses it — that frame is the white box
+     * that used to flash around whatever the user pressed. The web layer draws
+     * every state it needs itself, so the platform highlight is switched off.
+     */
+    private void suppressFocusHighlight() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        getWindow().getDecorView().setDefaultFocusHighlightEnabled(false);
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView != null) {
+            webView.setDefaultFocusHighlightEnabled(false);
         }
     }
 
