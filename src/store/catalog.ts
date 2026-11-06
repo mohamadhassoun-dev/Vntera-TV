@@ -105,8 +105,29 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         // a few hundred kilobytes, so ask for those first and paint titles while
         // the rest arrives; the full list replaces them when it finishes.
         const starterIds = catArg.vod.slice(0, 4).map((c) => String(c.category_id))
+        // Series is the last section to arrive and the Series page used to sit on
+        // skeletons until the whole 10k-title pull landed. Two categories are
+        // enough to fill the grid while the rest is on its way.
+        const starterSeriesIds = catArg.series.slice(0, 2).map((c) => String(c.category_id))
         const starterTask = (async () => {
           const seen = new Map<number, RawVodStream>()
+          const seenSeries = new Map<number, RawSeries>()
+          let pendingSeries = 0
+          const announceSeries = () => {
+            if (seriesRaw.length || seenSeries.size < 120 || pendingSeries) return
+            pendingSeries = window.setTimeout(() => {
+              pendingSeries = 0
+              if (seriesRaw.length) return
+              series = buildCatalog({
+                account,
+                live: [],
+                vod: [],
+                seriesRaw: [...seenSeries.values()],
+                categories: catArg,
+              }).series
+              publish(48)
+            }, 120)
+          }
           let pendingPublish = 0
           const announce = (final = false) => {
             // One tiny category is not a home page: a rail needs enough titles
@@ -125,15 +146,22 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
               set({ phase: `Showing ${vod.length.toLocaleString()} titles` })
             }, 120)
           }
-          await Promise.all(
-            starterIds.map(async (id) => {
+          await Promise.all([
+            ...starterIds.map(async (id) => {
               const list = await getMovies(id).catch(() => [] as RawVodStream[])
               if (vod.length) return
               for (const item of list) seen.set(Number(item.stream_id), item)
               announce()
             }),
-          )
+            ...starterSeriesIds.map(async (id) => {
+              const list = await getSeries(id).catch(() => [] as RawSeries[])
+              if (seriesRaw.length) return
+              for (const item of list) seenSeries.set(Number(item.series_id), item)
+              announceSeries()
+            }),
+          ])
           announce(true)
+          announceSeries()
         })()
         // The big pulls wait for the starter (or six seconds): they otherwise
         // take every connection and the first titles arrive as slowly as the
