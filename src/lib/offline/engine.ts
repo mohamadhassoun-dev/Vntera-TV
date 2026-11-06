@@ -50,7 +50,7 @@ export async function transferToStorage(
     let lastStatus = 0
     let restarted = false
     for (const url of urls) {
-      const attempt = await fetch(url, { headers, signal, credentials: 'include' }).catch(() => null)
+      const attempt = await fetch(url, { headers, signal, credentials: 'omit' }).catch(() => null)
       if (!attempt) continue
       if (attempt.status === 416) {
         // The stored slices do not line up with the file any more: start clean.
@@ -89,52 +89,92 @@ export async function transferToStorage(
     }
 
     const reader = response.body.getReader()
-    let buffer: BlobPart[] = []
+    let pending: Uint8Array[] = []
     let buffered = 0
-    let index = Math.floor(done / CHUNK)
+    // `done` only ever counts whole slices already in storage, so a resume can
+    // ask the host for exactly the next unsaved byte.
     let lastReport = 0
     let dropped: unknown = null
 
-    const flush = async () => {
-      if (!buffered) return
-      const blob = new Blob(buffer)
-      await appendChunk(job.id, index, blob)
-      index += 1
-      buffer = []
-      buffered = 0
+    const store = async () => {
+      while (buffered >= CHUNK) {
+        const merged = new Uint8Array(buffered)
+        let offset = 0
+        for (const part of pending) {
+          merged.set(part, offset)
+          offset += part.byteLength
+        }
+        await appendChunk(job.id, done / CHUNK, new Blob([merged.subarray(0, CHUNK)]))
+        const rest = merged.subarray(CHUNK)
+        pending = rest.byteLength ? [rest] : []
+        buffered = rest.byteLength
+        done += CHUNK
+      }
     }
 
     try {
       for (;;) {
         if (signal.aborted) throw new DOMException('aborted', 'AbortError')
         // Look-ahead is a bounded slice, never the whole film.
-        if (done >= limit) break
+        if (done + buffered >= limit) break
         const { done: finished, value } = await reader.read()
         if (finished) break
         if (!value) continue
-        const remaining = limit - done
-        const slice = value.byteLength > remaining ? value.slice(0, remaining) : value
-        buffer.push(slice)
+        const remaining = limit - done - buffered
+        const slice = value.byteLength > remaining ? value.subarray(0, remaining) : value
+        pending.push(slice)
         buffered += slice.byteLength
-        done += slice.byteLength
-        if (buffered >= CHUNK) await flush()
+        await store()
         const now = Date.now()
         if (now - lastReport > 200) {
           lastReport = now
-          onProgress(done, total > 0 ? total : done)
+          const at = done + buffered
+          onProgress(at, total > 0 ? total : at)
         }
       }
     } catch (error) {
       dropped = error
     } finally {
-      await flush().catch(() => undefined)
       await reader.cancel().catch(() => undefined)
     }
 
     if (signal.aborted) throw new DOMException('aborted', 'AbortError')
-    if (!dropped) break
 
-    // Still short of the file, and the host cut the stream: pick it up again.
+    if (!dropped) {
+      const received = done + buffered
+      // Some hosts close a truncated response cleanly instead of throwing. Keep
+      // the partial tail out of storage and resume from the last complete slice.
+      if (total > 0 && received < total && received < limit) {
+        pending = []
+        buffered = 0
+        if (resumes < MAX_RESUMES) {
+          resumes += 1
+          await sleep(400 * Math.min(resumes, 5))
+          continue
+        }
+        throw new Error(`The connection ended at ${received} of ${total} bytes`)
+      }
+
+      // The stream ended completely: the final slice may be shorter.
+      if (buffered) {
+        const merged = new Uint8Array(buffered)
+        let offset = 0
+        for (const part of pending) {
+          merged.set(part, offset)
+          offset += part.byteLength
+        }
+        await appendChunk(job.id, done / CHUNK, new Blob([merged]))
+        done += buffered
+        pending = []
+        buffered = 0
+      }
+      break
+    }
+
+    // The host cut the stream mid-file: the unsaved tail is dropped and the
+    // transfer picks up at the next whole slice.
+    pending = []
+    buffered = 0
     if (total > 0 && done < total && resumes < MAX_RESUMES) {
       resumes += 1
       await sleep(400 * Math.min(resumes, 5))
