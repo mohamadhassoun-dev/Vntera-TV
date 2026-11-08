@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './index.css'
+import { installLegacyGapFix } from './lib/legacyGap'
 import { useAuth } from './store/auth'
 import { useCatalog } from './store/catalog'
 import { useEpg } from './store/epg'
@@ -41,3 +42,7 @@ createRoot(root).render(
     </BrowserRouter>
   </StrictMode>,
 )
+
+// Only does anything where the compatibility stylesheet was chosen and the
+// engine has no flex gaps (see lib/legacyGap).
+installLegacyGapFix()
