@@ -1,6 +1,8 @@
 import type { Provider, Quality, RawCategory, RawLiveStream, RawSeries, RawVodStream, Title } from '../types'
 import { CHANNEL_ART, FEATURED_CHANNELS } from './config'
-import { BANDS, matchesBandName, normalizeTitleName } from './genreBands'
+import { normalizeTitleName, warmBandTitle } from './genreBands'
+import { warmTitleDerivations } from './homeRotation'
+import { warmCollectionTitle } from './collections'
 
 const QUALITY_PATTERNS: Array<{ q: Quality; re: RegExp }> = [
   { q: '4K', re: /(\b|\[|\()(4k|uhd|2160p?|hdr10?\+?|dolby\s?vision|dv)(\b|\]|\))/i },
@@ -456,13 +458,15 @@ export async function buildCatalogAsync(input: BuildInput) {
   const movies = finish(await reduce(movieTitles))
   const series = await reduce(seriesMap)
 
-  // The landing page asks every one of these the same two questions (is this an
-  // Action title, a Drama title?) the first time it opens. Answering them here,
-  // in slices, hands that first home render a warm answer instead of a name
-  // normalisation for forty-six thousand titles in one blocking pass.
+  // The landing page asks every one of these the same questions — is this an
+  // Action title, a Drama title, does its artwork render, what is its identity?
+  // Answering them here, in slices, hands that first home render warm answers
+  // instead of hundreds of thousands of regex and string operations in one
+  // blocking pass on the click that opens Home.
   for (const movie of movies) {
-    matchesBandName(movie, BANDS.action)
-    matchesBandName(movie, BANDS.drama)
+    warmBandTitle(movie)
+    warmCollectionTitle(movie)
+    warmTitleDerivations(movie)
     if (++sinceYield >= SLICE) {
       sinceYield = 0
       await yieldToBrowser()

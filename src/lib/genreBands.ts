@@ -438,12 +438,16 @@ export function normalizeTitleName(name: string): string {
  * thirteen seconds of main thread; the list never changes, so it is built once.
  */
 interface BandIndex {
-  /** Every known title, normalised, for whole-word containment lookups. */
-  phrases: Set<string>
+  /**
+   * Known titles as word arrays, grouped by their first word. A movie name only
+   * has to look at the phrases that could possibly start at each of its own
+   * words, instead of building every n-gram and looking each one up: on a
+   * 46k-title library the old slice-and-join pass was hundreds of milliseconds
+   * on every home render.
+   */
+  byFirstWord: Map<string, string[][]>
   /** Names like "24" or "007" only ever match the whole title. */
   numeric: Set<string>
-  /** Longest known title in words, so only real slices are checked. */
-  maxWords: number
 }
 
 const indexCache = new WeakMap<BandDefinition, BandIndex>()
@@ -451,42 +455,78 @@ const indexCache = new WeakMap<BandDefinition, BandIndex>()
 function bandIndex(band: BandDefinition): BandIndex {
   const cached = indexCache.get(band)
   if (cached) return cached
-  const phrases = new Set<string>()
+  const byFirstWord = new Map<string, string[][]>()
   const numeric = new Set<string>()
-  let maxWords = 1
   for (const entry of band.names) {
     const text = normalize(entry)
     if (!text) continue
-    if (/^\d+$/.test(text)) numeric.add(text)
-    else {
-      phrases.add(text)
-      const words = text.split(' ').length
-      if (words > maxWords) maxWords = words
+    if (/^\d+$/.test(text)) {
+      numeric.add(text)
+      continue
     }
+    const words = text.split(' ')
+    const list = byFirstWord.get(words[0])
+    if (list) list.push(words)
+    else byFirstWord.set(words[0], [words])
   }
-  const index = { phrases, numeric, maxWords }
+  const index = { byFirstWord, numeric }
   indexCache.set(band, index)
   return index
 }
 
+/** A title's normalised words, split once and reused by every band. */
+const wordsCache = new WeakMap<Title, string[]>()
+
+function titleWords(title: Title): string[] {
+  const cached = wordsCache.get(title)
+  if (cached) return cached
+  const name = titleName(title)
+  const words = name ? name.split(' ') : []
+  wordsCache.set(title, words)
+  return words
+}
+
+/** Per-title, per-band answer for the name scan. */
+const nameResult = new WeakMap<Title, Partial<Record<BandKey, boolean>>>()
+
 /**
  * True when the catalogue's own name is one of the band's known titles.
  *
- * The answer is sliced out of the title's own words and looked up in a set,
- * rather than compared against every known title: the Movies page asks this for
- * 46k titles on mount, and the linear scan cost seconds of main thread.
+ * The answer is cached on the title: the rail builder, the genre filter and the
+ * catalogue warm-up all ask the same question about the same movie, and the
+ * scan is pure over fields that never change while the title object lives.
  */
 export function matchesBandName(title: Title, band: BandDefinition): boolean {
-  const name = titleName(title)
-  if (!name) return false
-  const { phrases, numeric, maxWords } = bandIndex(band)
-  if (numeric.has(name)) return true
-  const words = name.split(' ')
+  let answers = nameResult.get(title)
+  if (!answers) {
+    answers = {}
+    nameResult.set(title, answers)
+  }
+  const known = answers[band.key]
+  if (known !== undefined) return known
+  const value = scanBandName(title, band)
+  answers[band.key] = value
+  return value
+}
+
+function scanBandName(title: Title, band: BandDefinition): boolean {
+  const words = titleWords(title)
+  if (!words.length) return false
+  const { byFirstWord, numeric } = bandIndex(band)
+  if (words.length === 1 && numeric.has(words[0])) return true
   for (let i = 0; i < words.length; i += 1) {
-    if (phrases.has(words[i])) return true
-    const until = Math.min(words.length, i + maxWords)
-    for (let j = i + 2; j <= until; j += 1) {
-      if (phrases.has(words.slice(i, j).join(' '))) return true
+    const candidates = byFirstWord.get(words[i])
+    if (!candidates) continue
+    for (const phrase of candidates) {
+      if (phrase.length > words.length - i) continue
+      let hit = true
+      for (let k = 1; k < phrase.length; k += 1) {
+        if (words[i + k] !== phrase[k]) {
+          hit = false
+          break
+        }
+      }
+      if (hit) return true
     }
   }
   return false
@@ -499,13 +539,16 @@ export function matchesBandText(title: Title, band: BandDefinition): boolean {
 }
 
 /**
- * Per-title answer for a band. A catalogue title object is stable for the life
- * of the snapshot, and the genre list, the counts and the filtered grid all ask
- * the same question about the same 46k titles, so it is answered once.
+ * Which of the band's three selection tiers a title falls in:
+ * 0 the band's known titles, 1 tagged with the genre, 2 only a name hint.
+ * Answered once per title: the rail builder walks the whole library, and the
+ * three tests behind this (two regexes and a phrase scan) are the most
+ * expensive thing the home page does.
  */
-const bandResult = new WeakMap<Title, Partial<Record<BandKey, boolean>>>()
+const bandResult = new WeakMap<Title, Partial<Record<BandKey, 0 | 1 | 2 | 3>>>()
 
-export function isBandTitle(title: Title, band: BandDefinition): boolean {
+/** 0 known title, 1 tagged genre, 2 name hint only, 3 not in the band. */
+function classifyBand(title: Title, band: BandDefinition): 0 | 1 | 2 | 3 {
   let answers = bandResult.get(title)
   if (!answers) {
     answers = {}
@@ -513,9 +556,34 @@ export function isBandTitle(title: Title, band: BandDefinition): boolean {
   }
   const known = answers[band.key]
   if (known !== undefined) return known
-  const value = matchesBandText(title, band) || matchesBandName(title, band)
+  const value: 0 | 1 | 2 | 3 = matchesBandName(title, band)
+    ? 0
+    : matchesBandText(title, band)
+      ? 1
+      : band.hints.test(title.name)
+        ? 2
+        : 3
   answers[band.key] = value
   return value
+}
+
+/**
+ * Per-title answer for a band. A catalogue title object is stable for the life
+ * of the snapshot, and the genre list, the counts and the filtered grid all ask
+ * the same question about the same 46k titles, so it is answered once.
+ */
+export function isBandTitle(title: Title, band: BandDefinition): boolean {
+  const tier = classifyBand(title, band)
+  return tier === 0 || tier === 1
+}
+
+/**
+ * Answers every band question this title can be asked, so a later home render
+ * is a cache read. Called in slices while the catalogue loads, when the launch
+ * intro is on screen and the work costs nothing the viewer can see.
+ */
+export function warmBandTitle(title: Title): void {
+  for (const band of Object.values(BANDS)) classifyBand(title, band)
 }
 
 /** Genre name to band, resolved once instead of per title. */
@@ -552,11 +620,12 @@ export function pickBandTitles(
   const tagged: Title[] = []
   const hinted: Title[] = []
   for (const movie of ratingOrdered(movies)) {
-    if (matchesBandName(movie, band)) named.push(movie)
-    else if (matchesBandText(movie, band)) tagged.push(movie)
+    const tier = classifyBand(movie, band)
+    if (tier === 0) named.push(movie)
+    else if (tier === 1) tagged.push(movie)
     // Some libraries tag almost nothing, so the line-up is topped up from names
-    // that carry the genre's vocabulary rather than left short of a full band.
-    else if (band.hints.test(movie.name)) hinted.push(movie)
+    // that carry the genre's vocabulary rather than left short of a band.
+    else if (tier === 2) hinted.push(movie)
   }
 
   const out: Title[] = []

@@ -10,6 +10,10 @@ import {
   fetchM3U,
 } from '../lib/xtream'
 import { buildCatalogAsync } from '../lib/normalize'
+import { warmBandTitle } from '../lib/genreBands'
+import { warmTitleDerivations } from '../lib/homeRotation'
+import { warmCollectionTitle } from '../lib/collections'
+import { warmTrending } from '../lib/search'
 import type { CatalogSnapshot, RawCategory, RawLiveStream, RawSeries, RawVodStream, Title } from '../types'
 import { classifyEntries, parseM3U } from '../lib/m3u'
 
@@ -87,6 +91,30 @@ async function readCache(account: string): Promise<CatalogSnapshot | null> {
   }
 }
 
+/**
+ * A snapshot read back from IndexedDB is plain data: none of the answers the
+ * landing page needs per title (does its artwork render, is it an Action title,
+ * what is its identity) survive the round trip. Computing them lazily put
+ * ~800 ms of regex and string work on the click that opens Home; answering them
+ * here, in slices while the launch intro still covers the screen, makes that
+ * click a cache read.
+ */
+async function warmSnapshot(snapshot: CatalogSnapshot): Promise<void> {
+  let sinceYield = 0
+  for (const movie of snapshot.movies) {
+    warmBandTitle(movie)
+    warmCollectionTitle(movie)
+    warmTitleDerivations(movie)
+    if (++sinceYield >= PART_SIZE) {
+      sinceYield = 0
+      await breathe()
+    }
+  }
+  // Search's trending list is a pass over the whole library too, and it is
+  // opened from a single tap in the header.
+  await warmTrending(snapshot)
+}
+
 async function writeCache(account: string, snapshot: CatalogSnapshot): Promise<void> {
   const movieParts = chunk(snapshot.movies, PART_SIZE)
   const seriesParts = chunk(snapshot.series, PART_SIZE)
@@ -129,6 +157,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
 
     const run = async () => {
       const cached = await readCache(account)
+      if (cached) await warmSnapshot(cached)
       const fresh = cached && Date.now() - cached.builtAt < REFRESH_INTERVAL_MS
       if (cached && !opts.force) {
         set({ snapshot: cached, status: 'ready', progress: 100, phase: '' })
@@ -372,24 +401,59 @@ export interface FeaturedChannelShortcut {
   label: string
 }
 
+/**
+ * Channel lookups by id and by name, built once per channel list.
+ *
+ * The shortcut column asks for about twenty channels by name, and answering that
+ * by scanning all 8.9k channels — lower-casing every name for every entry — cost
+ * 74 ms inside the tap that opened Home. One pass answers all of them.
+ */
+interface ChannelIndex {
+  byId: Map<number, Title>
+  byName: Map<string, Title>
+}
+
+const channelIndexCache = new WeakMap<readonly Title[], ChannelIndex>()
+
+export function channelIndex(channels: readonly Title[]): ChannelIndex {
+  const cached = channelIndexCache.get(channels)
+  if (cached) return cached
+  const byId = new Map<number, Title>()
+  const byName = new Map<string, Title>()
+  for (const channel of channels) {
+    if (!byId.has(channel.id)) byId.set(channel.id, channel)
+    for (const name of [channel.name, channel.cleanName]) {
+      const key = name.trim().toLowerCase()
+      if (!key) continue
+      const previous = byName.get(key)
+      // Among duplicates the newest wins, because the panel appends the copy
+      // that still plays.
+      if (!previous || (channel.addedAt ?? 0) > (previous.addedAt ?? 0)) byName.set(key, channel)
+    }
+  }
+  const index: ChannelIndex = { byId, byName }
+  channelIndexCache.set(channels, index)
+  return index
+}
+
 /** The curated Shortcut channels, in configuration order, omitting any channel
  *  this panel does not carry. */
 export function featuredChannels(snapshot: CatalogSnapshot | null): FeaturedChannelShortcut[] {
   if (!snapshot) return []
   const out: FeaturedChannelShortcut[] = []
+  const index = channelIndex(snapshot.channels)
   for (const entry of FEATURED_CHANNELS) {
     // The panel often lists one channel twice: the working stream plus a dead
     // duplicate left over from a re-provision. Both answer to the same name, so
     // the configured id is the reliable pick and the name is only the fallback
     // for when the panel re-issues ids. Among name matches the newest wins,
     // because the panel appends the duplicate that still plays.
-    const names = new Set((entry.names ?? []).map((name) => name.trim().toLowerCase()))
-    const byName = names.size
-      ? snapshot.channels
-          .filter((c) => names.has(c.name.trim().toLowerCase()) || names.has(c.cleanName.trim().toLowerCase()))
-          .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))[0]
-      : undefined
-    const channel = (entry.id ? snapshot.channels.find((c) => c.id === entry.id) : undefined) ?? byName
+    let byName: Title | undefined
+    for (const name of entry.names ?? []) {
+      const match = index.byName.get(name.trim().toLowerCase())
+      if (match && (!byName || (match.addedAt ?? 0) > (byName.addedAt ?? 0))) byName = match
+    }
+    const channel = (entry.id ? index.byId.get(entry.id) : undefined) ?? byName
     if (channel) out.push({ channel, label: entry.label })
   }
   return out

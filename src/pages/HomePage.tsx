@@ -42,7 +42,7 @@ import { categoriesWithCounts, useCatalog } from '../store/catalog'
 import { defaultShortcutItems, resolveShortcuts, useShortcuts } from '../store/shortcuts'
 import { useHeroHistory } from '../store/heroHistory'
 import { continueWatching, useLibrary } from '../store/library'
-import type { Provider, Title } from '../types'
+import type { CatalogSnapshot, Provider, Title } from '../types'
 
 /** Home rail brands, in the requested order. IMDb sits between Disney+ and WWE. */
 type HomeRailBrand = Provider | 'imdb'
@@ -74,7 +74,16 @@ interface HomeRows {
  *  over 46k titles again. */
 const rowsCache = new WeakMap<readonly Title[], Map<string, HomeRows>>()
 
-export function computeHomeRows(
+/**
+ * The same rows, produced one rail at a time.
+ *
+ * Every rail is a full pass over the library (de-duplicate, hash-order, take
+ * 24), so building all of them at once is a third of a second on a 46k-title
+ * catalogue — the freeze a viewer sees when they tap Home. As a generator the
+ * work can be handed back to the browser between rails (see prewarmHomeRows),
+ * while computeHomeRows still drains it in one go for a live render.
+ */
+function* homeRowsSteps(
   allMovies: readonly Title[],
   weekIndex: number,
   rotationIndex: number,
@@ -82,7 +91,7 @@ export function computeHomeRows(
   /** True while the catalogue is still a first slice: the curated bands would
    *  reserve most of a small pool and leave the rails empty. */
   partial = false,
-): HomeRows {
+): Generator<void, HomeRows, void> {
   let byWeek = rowsCache.get(allMovies)
   if (!byWeek) {
     byWeek = new Map()
@@ -111,6 +120,9 @@ export function computeHomeRows(
   const imdbPool = movies
     .filter((movie) => (movie.rating ?? 0) >= IMDB_MIN_RATING)
     .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || (b.watchCount ?? 0) - (a.watchCount ?? 0))
+  // The four ordered pools above are the only work that must finish before the
+  // first rail can be chosen.
+  yield
 
   // One pass in display order: every rail takes titles and poster images no
   // earlier rail used, so no movie and no artwork repeats down the page.
@@ -141,26 +153,37 @@ export function computeHomeRows(
   if (!partial) reserveTitles(usage, action)
   const drama = pickBandTitles(bandPool, BANDS.drama, 27)
   if (!partial) reserveTitles(usage, drama)
+  yield
   const topTen = take(movies, 'top-ten', TOP_TEN_COUNT)
-  const brands = BRAND_RAIL_ORDER.map((brand) => {
-    const titles = take(
-      brand === 'imdb' ? imdbPool : movies.filter((movie) => movie.provider === brand),
-      `provider-${brand}`,
-      RAIL_LIMIT,
-    )
-    return { brand, titles }
-  })
+  yield
+  const brands: HomeRows['brands'] = []
+  for (const brand of BRAND_RAIL_ORDER) {
+    brands.push({
+      brand,
+      titles: take(
+        brand === 'imdb' ? imdbPool : movies.filter((movie) => movie.provider === brand),
+        `provider-${brand}`,
+        RAIL_LIMIT,
+      ),
+    })
+    yield
+  }
   // Curated rails for the panel's kids and anime sections, shaped like the
   // provider rails: wordmark card first, then this week's titles.
   const kids = take(collectionTitles(movies, 'kids'), 'kids', RAIL_LIMIT)
+  yield
   const anime = take(collectionTitles(movies, 'anime'), 'anime', RAIL_LIMIT)
+  yield
   const blockbusters = take(
     movies.filter((movie) => movie.blockbuster),
     'blockbusters',
     RAIL_LIMIT,
   )
+  yield
   const fresh = selectUniqueNewTitles(recentMovies, trendingMovies, weekIndex, RAIL_LIMIT, usage)
+  yield
   const popularRail = take(popularPool, 'popular', RAIL_LIMIT)
+  yield
 
   const rows: HomeRows = {
     hero,
@@ -178,6 +201,45 @@ export function computeHomeRows(
 
   byWeek.set(cacheKey, rows)
   return rows
+}
+
+export function computeHomeRows(
+  allMovies: readonly Title[],
+  weekIndex: number,
+  rotationIndex: number,
+  heroIds: readonly number[] = [],
+  partial = false,
+): HomeRows {
+  const steps = homeRowsSteps(allMovies, weekIndex, rotationIndex, heroIds, partial)
+  let next = steps.next()
+  while (!next.done) next = steps.next()
+  return next.value
+}
+
+/**
+ * Builds the landing page's rows while the viewer is somewhere else, one rail
+ * per frame, so the tap on Home finds them already chosen. The picks are made by
+ * the same functions as a live render, so the page is identical; only the moment
+ * the work happens moves, from the click to the idle time before it.
+ */
+export async function prewarmHomeRows(snapshot: CatalogSnapshot): Promise<void> {
+  const movies = snapshot.movies
+  if (!movies.length) return
+  const heroIds = currentHeroIds(movies)
+  const steps = homeRowsSteps(movies, utcWeekIndex(new Date()), utcRotationIndex(new Date()), heroIds, false)
+  const yieldToBrowser = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+  let next = steps.next()
+  while (!next.done) {
+    await yieldToBrowser()
+    next = steps.next()
+  }
+}
+
+/** The hero line-up the home page will show for the current rotation. */
+export function currentHeroIds(movies: readonly Title[]): number[] {
+  const pool = heroCandidatePool(movies)
+  const shown = useHeroHistory.getState().shown
+  return selectHeroRotation(pool, shown, utcRotationIndex(new Date())).map((movie) => movie.id)
 }
 
 export default function HomePage() {

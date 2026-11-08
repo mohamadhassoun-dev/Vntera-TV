@@ -113,14 +113,18 @@ export function installRoutePrefetch(): () => void {
   document.addEventListener('focusin', onFocus)
   document.addEventListener('keydown', onPress)
 
-  // Once the shell is up, quietly pull the pages people open most from Home.
+  // Once the shell is up, quietly pull every page chunk. A tap that has to
+  // fetch, parse and mount a chunk first paints the loading skeleton instead of
+  // the page, which is the "route is stuck" moment; these are small split
+  // chunks, so warming them while nothing is happening removes that wait
+  // entirely and changes no markup.
   const idle = (window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1200))) as (
     cb: () => void,
   ) => number
   idle(() => {
-    warmRoute('/title/')
-    warmRoute('/search')
-    warmRoute('/profile')
+    for (const path of ['/', '/live', '/movies', '/series', '/new', '/my-list', '/downloads', '/search', '/profile', '/notifications', '/title/']) {
+      warmRoute(path)
+    }
     // Phones never hover, so without this the player chunk only starts loading
     // after the tap lands — the most noticeable delay in the app.
     warmRoute('/watch/movie/', { force: true })

@@ -29,11 +29,30 @@ export function isCollectionSlug(value: string | undefined): value is Collection
   return value === 'kids' || value === 'anime'
 }
 
+const collectionCache = new WeakMap<Title, Partial<Record<CollectionSlug, boolean>>>()
+
 export function matchesCollection(title: Title, slug: CollectionSlug): boolean {
+  let answers = collectionCache.get(title)
+  if (!answers) {
+    answers = {}
+    collectionCache.set(title, answers)
+  }
+  const known = answers[slug]
+  if (known !== undefined) return known
   const haystack = `${title.categoryName} ${title.genres.join(' ')}`
-  if (slug === 'anime') return ANIME_PATTERN.test(haystack)
+  let value: boolean
+  if (slug === 'anime') value = ANIME_PATTERN.test(haystack)
   // Anime has its own shortcut, so it is not repeated inside Kids.
-  return KIDS_PATTERN.test(haystack) && !ANIME_PATTERN.test(haystack)
+  else value = KIDS_PATTERN.test(haystack) && !ANIME_PATTERN.test(haystack)
+  answers[slug] = value
+  return value
+}
+
+/** Answers both collection questions for a title, so a later home build is a
+ *  cache read. Called in slices while the catalogue loads. */
+export function warmCollectionTitle(title: Title): void {
+  matchesCollection(title, 'kids')
+  matchesCollection(title, 'anime')
 }
 
 export function collectionTitles(titles: readonly Title[], slug: CollectionSlug): Title[] {

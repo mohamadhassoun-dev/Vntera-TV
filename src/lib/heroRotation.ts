@@ -1,5 +1,5 @@
 import type { Title } from '../types'
-import { artworkKey, isRenderableArtwork, stableHash, titleIdentity } from './homeRotation'
+import { artworkToken, identityToken, stableHash } from './homeRotation'
 import { isHiddenFromHome } from './hidden'
 
 /** Movies the hero features per hourly rotation. */
@@ -15,12 +15,11 @@ export interface HeroRotationEntry {
  *  render disqualifies a movie, because the hero has no room for generated
  *  artwork. */
 export function heroCandidatePool(movies: readonly Title[]): Title[] {
+  // `artworkToken` is the cached form of "does this poster render", so the
+  // filter costs a WeakMap lookup instead of re-running the URL regexes over the
+  // whole library every time the home page is built.
   const eligible = movies.filter(
-    (movie) =>
-      movie.kind === 'movie' &&
-      !isHiddenFromHome(movie) &&
-      movie.hasArtwork &&
-      isRenderableArtwork(movie.poster),
+    (movie) => movie.kind === 'movie' && !isHiddenFromHome(movie) && artworkToken(movie) !== 0,
   )
   const blockbusters = eligible
     .filter((movie) => movie.blockbuster)
@@ -31,12 +30,12 @@ export function heroCandidatePool(movies: readonly Title[]): Title[] {
   // The panel repeats the same film under several stream ids, so one movie is
   // one candidate.
   const seenIds = new Set<number>()
-  const seenIdentities = new Set<string>()
-  const seenArtwork = new Set<string>()
+  const seenIdentities = new Set<number>()
+  const seenArtwork = new Set<number>()
   const pool: Title[] = []
   for (const movie of blockbusters) {
-    const artwork = artworkKey(movie)
-    const identity = titleIdentity(movie)
+    const artwork = artworkToken(movie)
+    const identity = identityToken(movie)
     if (seenIds.has(movie.id) || seenIdentities.has(identity) || seenArtwork.has(artwork)) continue
     seenIds.add(movie.id)
     seenIdentities.add(identity)

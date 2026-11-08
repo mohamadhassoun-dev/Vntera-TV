@@ -8,6 +8,43 @@ import { scrollRail } from '../lib/platform'
 import { loadProgressMap } from '../lib/progress'
 import type { ResolvedShortcut } from '../store/shortcuts'
 
+/**
+ * Rails below the first screen attach a couple per frame instead of all inside
+ * the tap that opened the page.
+ *
+ * Home mounts fifteen rails, roughly 340 posters: rendering them in one commit
+ * was a 300 ms task on the click, and every card is below the fold anyway. The
+ * first few rails, which are what the opening frame actually shows, still mount
+ * synchronously; the rest queue up behind two animation frames and land within a
+ * fifth of a second — off screen, in the same order, with the same markup. The
+ * rail's own height is already reserved by containIntrinsicSize, so nothing
+ * shifts when they arrive.
+ */
+const IMMEDIATE_RAILS = 3
+let immediateBudget = IMMEDIATE_RAILS
+let mountQueue: Array<() => void> = []
+let drainScheduled = false
+
+function scheduleRailMount(mount: () => void) {
+  mountQueue.push(mount)
+  if (drainScheduled) return
+  drainScheduled = true
+  const drain = () => {
+    drainScheduled = false
+    for (const run of mountQueue.splice(0, 2)) run()
+    if (mountQueue.length) {
+      drainScheduled = true
+      requestAnimationFrame(drain)
+    }
+  }
+  requestAnimationFrame(drain)
+}
+
+/** The next page starts with a fresh synchronous allowance. */
+function resetImmediateBudget() {
+  immediateBudget = IMMEDIATE_RAILS
+}
+
 export function Rail({
   title,
   meta,
@@ -26,9 +63,27 @@ export function Rail({
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [tooFew, setTooFew] = useState(false)
+  const [mounted, setMounted] = useState(() => immediateBudget-- > 0)
 
   useEffect(() => {
-    if (!minItems) return
+    if (mounted) return
+    let cancelled = false
+    scheduleRailMount(() => {
+      if (cancelled) return
+      setMounted(true)
+      // The budget refills once this page's rails have been handed out, so the
+      // next route opened gets its own synchronous head start.
+      resetImmediateBudget()
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [mounted])
+
+  useEffect(() => {
+    // Until this rail's cards are mounted there is nothing to count, and an
+    // empty rail must not be mistaken for one with too few cards.
+    if (!minItems || !mounted) return
     const el = ref.current
     if (!el) return
     const check = () => {
@@ -45,7 +100,7 @@ export function Rail({
       observer.disconnect()
       window.clearTimeout(settle)
     }
-  }, [minItems])
+  }, [minItems, mounted])
 
   if (tooFew) return null
 
@@ -86,7 +141,7 @@ export function Rail({
         />
       ) : null}
       <div className="rail no-scrollbar" ref={ref}>
-        {children}
+        {mounted ? children : null}
       </div>
     </section>
   )

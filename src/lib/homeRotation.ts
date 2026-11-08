@@ -4,11 +4,14 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 const ROTATION_MS = 60 * 60 * 1000
 const DEFAULT_HOME_LIMIT = 24
 
-/** Titles already chosen for the page, so no rail repeats another rail's work. */
+/** Titles already chosen for the page, so no rail repeats another rail's work.
+ *  Identities and artwork are held as interned numbers: the sets are consulted
+ *  for every title of every rail, and hashing a 60-character URL each time was
+ *  the second largest cost on the home hop. */
 export interface ArtworkUsage {
   ids: Set<number>
-  identities: Set<string>
-  artworks: Set<string>
+  identities: Set<number>
+  artworks: Set<number>
 }
 
 export function createArtworkUsage(): ArtworkUsage {
@@ -74,6 +77,46 @@ export function titleIdentity(title: Title): string {
   return identity
 }
 
+/**
+ * Interned numbers for the two derived keys, so rail de-duplication compares
+ * small integers instead of long strings. 0 means "no renderable artwork".
+ */
+const artworkTokenCache = new WeakMap<Title, number>()
+const identityTokenCache = new WeakMap<Title, number>()
+const artworkTokens = new Map<string, number>()
+const identityTokens = new Map<string, number>()
+let nextArtworkToken = 1
+let nextIdentityToken = 1
+
+export function artworkToken(title: Title): number {
+  const cached = artworkTokenCache.get(title)
+  if (cached !== undefined) return cached
+  const key = artworkKey(title)
+  let token = 0
+  if (key) {
+    token = artworkTokens.get(key) ?? 0
+    if (!token) {
+      token = nextArtworkToken++
+      artworkTokens.set(key, token)
+    }
+  }
+  artworkTokenCache.set(title, token)
+  return token
+}
+
+export function identityToken(title: Title): number {
+  const cached = identityTokenCache.get(title)
+  if (cached !== undefined) return cached
+  const key = titleIdentity(title)
+  let token = identityTokens.get(key) ?? 0
+  if (!token) {
+    token = nextIdentityToken++
+    identityTokens.set(key, token)
+  }
+  identityTokenCache.set(title, token)
+  return token
+}
+
 /** Quality, release and language tags that carry no title identity. */
 const NOISE_TOKENS = new Set([
   '4k', 'uhd', '2160p', '1080p', '720p', '480p', 'fhd', 'full', 'hd', 'sd', 'hdr', 'hdr10',
@@ -127,13 +170,13 @@ export function takeUnusedTitles(
   if (limit <= 0) return []
   const picked: Title[] = []
   const seenIds = new Set(alreadyPicked.map((title) => title.id))
-  const seenIdentities = new Set(alreadyPicked.map(titleIdentity))
-  const seenArtwork = new Set(alreadyPicked.map(artworkKey))
+  const seenIdentities = new Set(alreadyPicked.map(identityToken))
+  const seenArtwork = new Set(alreadyPicked.map(artworkToken))
   for (const title of ordered) {
     if (picked.length >= limit) break
-    const artwork = artworkKey(title)
+    const artwork = artworkToken(title)
     if (!artwork) continue
-    const identity = titleIdentity(title)
+    const identity = identityToken(title)
     if (seenIds.has(title.id) || usage.ids.has(title.id)) continue
     if (seenIdentities.has(identity) || usage.identities.has(identity)) continue
     if (seenArtwork.has(artwork) || usage.artworks.has(artwork)) continue
@@ -149,8 +192,8 @@ export function takeUnusedTitles(
 export function reserveTitles(usage: ArtworkUsage, titles: readonly Title[]): void {
   for (const title of titles) {
     usage.ids.add(title.id)
-    usage.identities.add(titleIdentity(title))
-    const artwork = artworkKey(title)
+    usage.identities.add(identityToken(title))
+    const artwork = artworkToken(title)
     if (artwork) usage.artworks.add(artwork)
   }
 }
@@ -168,6 +211,17 @@ export function selectUniqueRailTitles(
   const picked = takeUnusedTitles(weeklyRailOrder(candidates, railKey, weekIndex, cap), cap, usage)
   reserveTitles(usage, picked)
   return picked
+}
+
+/**
+ * Answers the two questions every rail asks about a title — does its artwork
+ * render, and what is its identity — so a later rail build is a cache read.
+ */
+export function warmTitleDerivations(title: Title): void {
+  artworkKey(title)
+  titleIdentity(title)
+  artworkToken(title)
+  identityToken(title)
 }
 
 /** "New on Vntera": recent movies first, then unique trending movies. */
@@ -233,13 +287,13 @@ export function scheduleNextUtcWeekUpdate(onBoundary: () => void, now: number): 
 
 function uniqueArtworkMovies(titles: readonly Title[]): Title[] {
   const seenIds = new Set<number>()
-  const seenIdentities = new Set<string>()
-  const seenArtwork = new Set<string>()
+  const seenIdentities = new Set<number>()
+  const seenArtwork = new Set<number>()
   return titles.filter((title) => {
     if (title.kind !== 'movie' || !title.hasArtwork) return false
-    const artwork = artworkKey(title)
+    const artwork = artworkToken(title)
     if (!artwork) return false
-    const identity = titleIdentity(title)
+    const identity = identityToken(title)
     if (seenIds.has(title.id) || seenIdentities.has(identity) || seenArtwork.has(artwork)) return false
     seenIds.add(title.id)
     seenIdentities.add(identity)

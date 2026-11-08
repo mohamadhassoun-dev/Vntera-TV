@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { CatalogSnapshot, Title } from '../types'
 import { COLLECTIONS, type CollectionSlug } from '../lib/collections'
-import { featuredChannels } from './catalog'
+import { channelIndex, featuredChannels } from './catalog'
 
 export type ShortcutItem =
   | { type: 'channel'; id: number; label: string }
@@ -65,9 +65,10 @@ export function resolveShortcuts(
   liveCategories: Array<{ id: string; name: string }>,
 ): ResolvedShortcut[] {
   const out: ResolvedShortcut[] = []
+  const byId = snapshot ? channelIndex(snapshot.channels).byId : null
   for (const item of items) {
     if (item.type === 'channel') {
-      const channel = snapshot?.channels.find((candidate) => candidate.id === item.id)
+      const channel = byId?.get(item.id)
       if (!channel) continue
       out.push({ key: `channel:${item.id}`, label: item.label, channel, item })
       continue

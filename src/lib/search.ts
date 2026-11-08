@@ -171,13 +171,123 @@ const TRENDING_NAMES = [
 const cleanSearchName = (name: string) => name.replace(/\s*\[.*?\]\s*/g, '').trim()
 const searchKey = (name: string) => cleanSearchName(name).toLowerCase()
 
+/** Normalised search key per title, computed once: trending asks for it on every
+ *  title of a 57k catalogue, once per curated name. */
+const titleKeyCache = new WeakMap<Title, string>()
+
+function searchKeyOf(title: Title): string {
+  const cached = titleKeyCache.get(title)
+  if (cached !== undefined) return cached
+  const key = searchKey(title.name)
+  titleKeyCache.set(title, key)
+  return key
+}
+
+/**
+ * Answers per catalogue, so opening Search a second time is free: this walks all
+ * 57k titles, and Search is opened from a single tap in the header, so the scan
+ * used to be the page's first paint.
+ */
+const trendingCache = new WeakMap<CatalogSnapshot, Map<number, string[]>>()
+
+interface TrendingIndex {
+  titles: Title[]
+  sortedKeys: string[]
+  byKey: Map<string, string>
+}
+
+const trendingIndexCache = new WeakMap<CatalogSnapshot, TrendingIndex>()
+
+/**
+ * The trending scan walks every title in the library, so it is built during the
+ * catalogue warm-up — in slices, while the launch intro is on screen — instead
+ * of on the tap that opens Search.
+ */
+export async function warmTrending(catalog: CatalogSnapshot): Promise<void> {
+  await buildTrendingIndex(catalog, 6000)
+  trendingSearches(catalog, 8)
+}
+
+async function buildTrendingIndex(catalog: CatalogSnapshot, slice?: number): Promise<TrendingIndex> {
+  const cached = trendingIndexCache.get(catalog)
+  if (cached) return cached
+  const titles: Title[] = []
+  const keys: string[] = []
+  const byKey = new Map<string, string>()
+  let sinceYield = 0
+  const pools = [catalog.movies, catalog.series]
+  for (const pool of pools) {
+    for (const title of pool) {
+      const key = searchKeyOf(title)
+      if (key) {
+        titles.push(title)
+        keys.push(key)
+        if (!byKey.has(key)) byKey.set(key, cleanSearchName(title.name))
+      }
+      if (slice && ++sinceYield >= slice) {
+        sinceYield = 0
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      }
+    }
+  }
+  const index: TrendingIndex = { titles, sortedKeys: keys.slice().sort(), byKey }
+  trendingIndexCache.set(catalog, index)
+  return index
+}
+
+/** The same index, built in one go for a Search page opened before warming ran. */
+function buildTrendingIndexSync(catalog: CatalogSnapshot): TrendingIndex {
+  const cached = trendingIndexCache.get(catalog)
+  if (cached) return cached
+  const titles: Title[] = []
+  const keys: string[] = []
+  const byKey = new Map<string, string>()
+  for (const pool of [catalog.movies, catalog.series]) {
+    for (const title of pool) {
+      const key = searchKeyOf(title)
+      if (!key) continue
+      titles.push(title)
+      keys.push(key)
+      if (!byKey.has(key)) byKey.set(key, cleanSearchName(title.name))
+    }
+  }
+  const index: TrendingIndex = { titles, sortedKeys: keys.slice().sort(), byKey }
+  trendingIndexCache.set(catalog, index)
+  return index
+}
+
 export function trendingSearches(catalog: CatalogSnapshot | null, limit = 8): string[] {
   if (!catalog) return []
-  const pool = [...catalog.movies, ...catalog.series]
-  const byKey = new Map<string, string>()
-  for (const title of pool) {
-    const key = searchKey(title.name)
-    if (key && !byKey.has(key)) byKey.set(key, cleanSearchName(title.name))
+  let byLimit = trendingCache.get(catalog)
+  if (!byLimit) {
+    byLimit = new Map()
+    trendingCache.set(catalog, byLimit)
+  }
+  const cached = byLimit.get(limit)
+  if (cached) return cached
+  const picked = computeTrending(catalog, limit)
+  byLimit.set(limit, picked)
+  return picked
+}
+
+function computeTrending(catalog: CatalogSnapshot, limit: number): string[] {
+  // The index is built once per catalogue (see warmTrending); the curated-name
+  // scan below reads its sorted key list instead of running a regex per title
+  // per curated name, which was three quarters of a million normalisations.
+  const index = trendingIndexCache.get(catalog)
+  const { titles, sortedKeys, byKey } = index ?? buildTrendingIndexSync(catalog)
+
+  /** First title whose normalised name starts with `needle`. */
+  const byPrefix = (needle: string): string | undefined => {
+    let low = 0
+    let high = sortedKeys.length
+    while (low < high) {
+      const mid = (low + high) >> 1
+      if (sortedKeys[mid] < needle) low = mid + 1
+      else high = mid
+    }
+    const key = sortedKeys[low]
+    return key && key.startsWith(needle) ? byKey.get(key) : undefined
   }
 
   const picked: string[] = []
@@ -192,18 +302,36 @@ export function trendingSearches(catalog: CatalogSnapshot | null, limit = 8): st
   // A curated title matches on its whole name first, then on a prefix, so
   // "Venom" finds "Venom: The Last Dance" instead of being dropped.
   for (const wanted of TRENDING_NAMES) {
-    const exact = byKey.get(wanted.toLowerCase())
+    const needle = wanted.toLowerCase()
+    const exact = byKey.get(needle)
     if (exact) {
       add(exact)
       continue
     }
-    const prefix = pool.find((title) => searchKey(title.name).startsWith(wanted.toLowerCase()))
-    if (prefix) add(prefix.name)
+    const prefix = byPrefix(needle)
+    if (prefix) add(prefix)
   }
 
-  const popular = [...pool]
-    .sort((a, b) => (b.watchCount ?? 0) - (a.watchCount ?? 0) || (b.rating ?? 0) - (a.rating ?? 0))
-  for (const title of popular) {
+  // Only the most watched few are needed, so the library is scanned once
+  // instead of sorting all of it to read the first eight names.
+  // A few spare names, because duplicates collapse into one chip below.
+  const cap = Math.max(limit * 4, limit)
+  const best: Title[] = []
+  for (const title of titles) {
+    let at = best.length
+    while (at > 0) {
+      const other = best[at - 1]
+      const better =
+        (title.watchCount ?? 0) > (other.watchCount ?? 0) ||
+        ((title.watchCount ?? 0) === (other.watchCount ?? 0) && (title.rating ?? 0) > (other.rating ?? 0))
+      if (!better) break
+      at -= 1
+    }
+    if (at >= cap) continue
+    best.splice(at, 0, title)
+    if (best.length > cap) best.pop()
+  }
+  for (const title of best) {
     if (picked.length >= limit) break
     add(title.name)
   }

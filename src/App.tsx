@@ -46,6 +46,8 @@ export default function App() {
   const [introDone, setIntroDone] = useState(false)
 
   const catalogProgress = useCatalog((s) => s.progress)
+  const catalogStatus = useCatalog((s) => s.status)
+  const snapshot = useCatalog((s) => s.snapshot)
 
   useEffect(() => {
     void bootstrap()
@@ -59,6 +61,28 @@ export default function App() {
     applyFormFactor(formFactor)
     document.documentElement.dataset.reduceMotion = String(false)
   }, [formFactor])
+
+  // Home chooses eleven rails out of the whole library, which is a third of a
+  // second on a 46k-title catalogue. Build them here, one rail per frame, while
+  // the viewer is on some other page: the tap that opens Home then finds the
+  // line-up already chosen instead of freezing while it is computed. The chunk is
+  // imported lazily, so this costs nothing on a route that never loads Home.
+  useEffect(() => {
+    if (catalogStatus !== 'ready' || !snapshot || location.pathname === '/') return
+    const idle = (
+      window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 800))
+    ) as (cb: () => void) => number
+    let cancelled = false
+    const handle = idle(() => {
+      void import('./pages/HomePage')
+        .then((module) => (cancelled ? undefined : module.prewarmHomeRows(snapshot)))
+        .catch(() => undefined)
+    })
+    return () => {
+      cancelled = true
+      window.cancelIdleCallback?.(handle)
+    }
+  }, [catalogStatus, snapshot, location.pathname])
 
   useEffect(() => {
     const onResize = () => setFormFactor(detectFormFactor())
