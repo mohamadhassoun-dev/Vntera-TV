@@ -592,7 +592,8 @@ export function Hero({
               <span className="text-[12.5px] font-semibold">More Info</span>
             </Link>
             <button onClick={onToggleList} className="icon-btn !h-9 !w-9" data-nav="true" aria-label={inList ? 'Remove from My List' : 'Add to My List'}>
-              <Icon name={inList ? 'check' : 'plus'} size={18} />
+              {/* A heart says "save"; the plus sign read as "zoom in". */}
+              <Icon name="heart" size={17} className={inList ? 'text-crimson' : undefined} />
             </button>
           </div>
 

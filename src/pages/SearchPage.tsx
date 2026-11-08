@@ -17,6 +17,24 @@ import { localGet, localSet } from '../lib/storage'
 import { useDebounced } from '../lib/hooks'
 import type { Title } from '../types'
 
+const SEARCH_KINDS = ['all', 'movie', 'series', 'live']
+const SEARCH_QUALITIES = ['all', '4K', 'FHD', 'HD', 'SD']
+const SEARCH_LANGUAGES = ['all', 'ar', 'en', 'fr']
+
+/** Filters live in the address as well as in state: opening a channel and
+ *  coming back restores the same search instead of an empty form. */
+function readFilters(params: URLSearchParams): SearchFilters {
+  const kind = params.get('kind') ?? 'all'
+  const quality = params.get('quality') ?? 'all'
+  const language = params.get('language') ?? 'all'
+  return {
+    kind: (SEARCH_KINDS.includes(kind) ? kind : 'all') as SearchFilters['kind'],
+    quality: (SEARCH_QUALITIES.includes(quality) ? quality : 'all') as SearchFilters['quality'],
+    language: (SEARCH_LANGUAGES.includes(language) ? language : 'all') as SearchFilters['language'],
+    genre: params.get('genre') ?? 'all',
+  }
+}
+
 const KINDS: Array<{ key: SearchFilters['kind']; label: string }> = [
   { key: 'all', label: 'Everything' },
   { key: 'movie', label: 'Movies' },
@@ -31,23 +49,27 @@ export default function SearchPage() {
   const [picker, setPicker] = useState<{ name: string; channels: Title[] } | null>(null)
   const [query, setQuery] = useState(() => params.get('q') ?? '')
   const debounced = useDebounced(query, 300)
-  const [filters, setFilters] = useState<SearchFilters>(DEFAULT_FILTERS)
+  const [filters, setFilters] = useState<SearchFilters>(() => readFilters(params))
   const [recent, setRecent] = useState<string[]>(() => localGet<string[]>('search:recent', []))
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  // Mirror the term into the URL. Opening a title unmounts this page, so on the
-  // way back the query is rebuilt from here instead of starting blank.
-  const urlQuery = params.get('q') ?? ''
+  // Mirror the term and the filters into the address. Opening a title unmounts
+  // this page, so the way back rebuilds the same search — typed text, chosen
+  // kind, quality and language included — instead of starting blank.
   useEffect(() => {
-    if (urlQuery === query) return
     const next = new URLSearchParams(params)
     if (query) next.set('q', query)
     else next.delete('q')
+    for (const [key, value] of Object.entries(filters)) {
+      if (value && value !== 'all') next.set(key, String(value))
+      else next.delete(key)
+    }
+    if (next.toString() === params.toString()) return
     setParams(next, { replace: true })
-  }, [query, urlQuery, params, setParams])
+  }, [query, filters, params, setParams])
 
   const results = useMemo(() => searchContent(snapshot, debounced, filters), [snapshot, debounced, filters])
   const trending = useMemo(() => trendingSearches(snapshot, 8), [snapshot])
@@ -63,6 +85,25 @@ export default function SearchPage() {
     setRecent(next)
     localSet('search:recent', next)
   }
+
+  /** Remove one remembered term, leaving the rest of the history untouched. */
+  const forget = (term: string) => {
+    const next = recent.filter((entry) => entry !== term)
+    setRecent(next)
+    localSet('search:recent', next)
+  }
+
+  // A remote never presses Enter, and opening a title unmounts the page. Saving
+  // the term on the way out is what actually fills the history.
+  const latest = useRef({ query, remember })
+  latest.current = { query, remember }
+  useEffect(
+    () => () => {
+      const term = latest.current.query.trim()
+      if (term) latest.current.remember(term)
+    },
+    [],
+  )
 
   const hasCriteria =
     !!debounced || filters.kind !== 'all' || filters.quality !== 'all' || filters.language !== 'all' || filters.genre !== 'all'
@@ -147,23 +188,38 @@ export default function SearchPage() {
                       localSet('search:recent', [])
                     }}
                     className="text-[10px] font-bold uppercase tracking-wider text-ink-mute hover:text-white"
+                    data-nav="true"
                   >
-                    Clear
+                    Clear all
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {recent.map((r) => (
-                    <button
+                    // Each term carries its own remove button, so one stale
+                    // search can be dropped without clearing the rest.
+                    <span
                       key={r}
-                      onClick={() => {
-                        setQuery(r)
-                        remember(r)
-                      }}
-                      className="flex items-center gap-2 rounded-full border border-stroke bg-layer-1 px-3 py-1.5 text-[12px] text-ink-soft hover:border-white/30 hover:text-white"
-                      data-nav="true"
+                      className="flex items-center overflow-hidden rounded-full border border-stroke bg-layer-1 hover:border-white/30"
                     >
-                      <Icon name="clock" size={13} /> {r}
-                    </button>
+                      <button
+                        onClick={() => {
+                          setQuery(r)
+                          remember(r)
+                        }}
+                        className="flex items-center gap-2 py-1.5 pl-3 pr-1 text-[12px] text-ink-soft hover:text-white"
+                        data-nav="true"
+                      >
+                        <Icon name="clock" size={13} /> {r}
+                      </button>
+                      <button
+                        onClick={() => forget(r)}
+                        aria-label={`Remove ${r} from recent searches`}
+                        className="px-2 py-1.5 text-ink-mute hover:text-crimson"
+                        data-nav="true"
+                      >
+                        <Icon name="close" size={12} />
+                      </button>
+                    </span>
                   ))}
                 </div>
               </section>

@@ -11,10 +11,13 @@ import { useEffect, useRef, useState } from 'react'
 export function Splash({
   progress,
   intro = false,
+  waitFor = false,
   onDone,
 }: {
   progress?: number
   intro?: boolean
+  /** Loop the sting and hold the cover until the app's first screen is ready. */
+  waitFor?: boolean
   onDone?: () => void
 }) {
   const [shown, setShown] = useState(false)
@@ -37,14 +40,27 @@ export function Splash({
     return () => window.clearTimeout(t)
   }, [])
 
-  // The intro is a cover, not a gate: never hold the app longer than this even
-  // when autoplay is blocked and no `ended` event ever arrives.
+  // The intro is a cover, not a gate: a hard cap plus a tap keep a slow or
+  // broken catalog from holding the app on the logo.
   useEffect(() => {
     if (!intro) return
-    const cap = window.setTimeout(finish, 5_000)
+    const cap = window.setTimeout(finish, waitFor ? 20_000 : 5_000)
     return () => window.clearTimeout(cap)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intro])
+  }, [intro, waitFor])
+
+  // Hand over the moment the first screen is ready — but only if the cover was
+  // actually waiting on it. A normal intro still plays to its own end.
+  const wasWaiting = useRef(waitFor)
+  useEffect(() => {
+    if (!intro) return
+    if (waitFor) {
+      wasWaiting.current = true
+      return
+    }
+    if (wasWaiting.current) finish()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intro, waitFor])
 
   const known = typeof progress === 'number' && progress > 0
   const fill = known ? `${Math.max(4, Math.min(100, progress))}%` : undefined
@@ -65,12 +81,15 @@ export function Splash({
           muted
           playsInline
           preload="auto"
+          // While the home page is still being built the sting repeats, so the
+          // first screen is never revealed half-filled.
+          loop={waitFor}
           // A blocked autoplay or a slow file falls back to the still loader.
-          onEnded={finish}
+          onEnded={waitFor ? undefined : finish}
           // Some WebViews miss `ended` on a muted sting; the clock is the truth.
           onTimeUpdate={(event) => {
             const el = event.currentTarget
-            if (el.duration && el.currentTime >= el.duration - 0.05) finish()
+            if (!waitFor && el.duration && el.currentTime >= el.duration - 0.05) finish()
           }}
           onError={() => setVideoFailed(true)}
           className="absolute inset-0 h-full w-full object-cover"

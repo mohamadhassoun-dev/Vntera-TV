@@ -8,16 +8,57 @@ const MOBILE_UA = /(iphone|ipod|android|blackberry|iemobile|opera mini|mobile)/i
  *  generic "Linux; Android 12" agent that is indistinguishable from a phone. */
 const BUILD_FORM = import.meta.env.VITE_FORCE_FORM as FormFactor | undefined
 
+const FORM_KEY = 'vntera:form'
+const FORMS: string[] = ['tv', 'mobile', 'tablet', 'desktop']
+
+function asForm(value: string | null): FormFactor | null {
+  return value && FORMS.includes(value) ? (value as FormFactor) : null
+}
+
+/**
+ * A `?form=tv` link is how a television browser — which reports a phone user
+ * agent — asks for the ten-foot layout. It used to last only until the first
+ * route change, because the query is dropped on navigation and the next
+ * detection called the same device a desktop: the hero lost its shortlist and
+ * the shortcut column reappeared on the right. An explicit choice is remembered.
+ */
 function forcedForm(): FormFactor | null {
   if (BUILD_FORM === 'tv' || BUILD_FORM === 'mobile' || BUILD_FORM === 'tablet' || BUILD_FORM === 'desktop') {
     return BUILD_FORM
   }
   try {
-    const v = new URLSearchParams(window.location.search).get('form')
-    return v === 'tv' || v === 'mobile' || v === 'tablet' || v === 'desktop' ? v : null
+    const asked = asForm(new URLSearchParams(window.location.search).get('form'))
+    if (asked) {
+      try {
+        window.localStorage.setItem(FORM_KEY, asked)
+      } catch {
+        /* private mode: the address still works for this page */
+      }
+      return asked
+    }
+    return asForm(window.localStorage.getItem(FORM_KEY))
   } catch {
     return null
   }
+}
+
+/**
+ * The form factor the shell has already applied.
+ *
+ * Components used to call detectFormFactor() themselves, which re-reads the URL
+ * and the user agent. A TV that arrived on `/?form=tv` loses that query when it
+ * signs in, so Home re-detected a desktop while the shell still painted the TV
+ * layout — and the shortcut rail was hidden behind `lg:hidden`. Everything now
+ * reads the applied value, so the whole page agrees with the shell.
+ */
+export function currentFormFactor(): FormFactor {
+  if (typeof document !== 'undefined') {
+    const applied = document.documentElement.dataset.formFactor
+    if (applied === 'tv' || applied === 'mobile' || applied === 'tablet' || applied === 'desktop') {
+      return applied
+    }
+  }
+  return detectFormFactor()
 }
 
 export function detectFormFactor(): FormFactor {
@@ -86,20 +127,54 @@ export async function startCast(video: HTMLVideoElement): Promise<void> {
 
 const NAV_SELECTOR = '[data-nav="true"]:not([disabled]):not([aria-hidden="true"])'
 
-function isVisible(el: HTMLElement): boolean {
-  if (el.hasAttribute('hidden')) return false
-  const rect = el.getBoundingClientRect()
-  if (rect.width < 2 || rect.height < 2) return false
-  const style = getComputedStyle(el)
-  return style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity) > 0.05
+interface NavItem {
+  el: HTMLElement
+  rect: DOMRect
+}
+
+/**
+ * One pass over the page per key press is what made a remote feel slow. A TV
+ * home page carries a few hundred targets, and every one of them used to cost a
+ * getBoundingClientRect plus a getComputedStyle — a forced style recalc — before
+ * the nearest one could even be scored. The list and its geometry are measured
+ * once and reused until something moves: the page scrolls, a rail mounts cards,
+ * or a route changes.
+ */
+let navCache: { at: number; x: number; y: number; items: NavItem[] } | null = null
+/** Geometry goes stale on scroll; the clock only bounds a page that never moves. */
+const NAV_CACHE_MS = 1_500
+
+export function invalidateSpatialCache(): void {
+  navCache = null
+}
+
+function collectNav(): NavItem[] {
+  const at = performance.now()
+  const x = window.scrollX
+  const y = window.scrollY
+  if (navCache && navCache.x === x && navCache.y === y && at - navCache.at < NAV_CACHE_MS) {
+    return navCache.items
+  }
+
+  const items: NavItem[] = []
+  for (const el of document.querySelectorAll<HTMLElement>(NAV_SELECTOR)) {
+    // Floating layers (toasts) sit on top of the page and vanish on their own;
+    // the remote must be able to pass beneath them without stopping.
+    if (el.closest('[data-nav-ignore="true"]')) continue
+    if (el.hasAttribute('hidden')) continue
+    const rect = el.getBoundingClientRect()
+    if (rect.width < 2 || rect.height < 2) continue
+    const style = getComputedStyle(el)
+    if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) <= 0.05) continue
+    items.push({ el, rect })
+  }
+
+  navCache = { at, x, y, items }
+  return items
 }
 
 function focusables(): HTMLElement[] {
-  return Array.from(document.querySelectorAll<HTMLElement>(NAV_SELECTOR)).filter(
-    // Floating layers (toasts) sit on top of the page and vanish on their own;
-    // the remote must be able to pass beneath them without stopping.
-    (el) => !el.closest('[data-nav-ignore="true"]') && isVisible(el),
-  )
+  return collectNav().map((item) => item.el)
 }
 
 type Direction = 'up' | 'down' | 'left' | 'right'
@@ -109,13 +184,14 @@ function center(el: Element) {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2, r }
 }
 
-function pickNext(current: HTMLElement, dir: Direction): HTMLElement | null {
+function pickNext(current: HTMLElement, dir: Direction, items: NavItem[] = collectNav()): HTMLElement | null {
   const from = center(current)
   let best: { el: HTMLElement; score: number } | null = null
 
-  for (const candidate of focusables()) {
+  for (const entry of items) {
+    const candidate = entry.el
     if (candidate === current || current.contains(candidate)) continue
-    const to = center(candidate)
+    const to = { x: entry.rect.left + entry.rect.width / 2, y: entry.rect.top + entry.rect.height / 2, r: entry.rect }
     const dx = to.x - from.x
     const dy = to.y - from.y
 
@@ -213,8 +289,18 @@ export function installSpatialNavigation(opts: SpatialOptions): () => void {
     const dir = dirMap[event.key]
     if (!dir) return
 
-    // Text fields keep caret navigation.
-    if (typing && (dir === 'left' || dir === 'right')) return
+    // Text fields keep caret navigation — except at the edge of the value. A
+    // remote has no pointer, so "Show password" beside the field was
+    // unreachable: every horizontal press inside the field only moved the caret.
+    if (typing && (dir === 'left' || dir === 'right')) {
+      const field = active as HTMLInputElement | HTMLTextAreaElement | null
+      const caret = field?.selectionStart ?? 0
+      const end = field?.selectionEnd ?? 0
+      const length = field?.value?.length ?? 0
+      const atEdge = dir === 'left' ? caret === 0 && end === 0 : caret === length && end === length
+      // Not at the edge: let the caret move, which is what typing expects.
+      if (!atEdge) return
+    }
 
     const current = active?.matches(NAV_SELECTOR) ? active : focusables()[0]
     if (!current) return
@@ -223,13 +309,24 @@ export function installSpatialNavigation(opts: SpatialOptions): () => void {
       event.preventDefault()
       next.focus({ preventScroll: false })
       next.classList.add('is-focused')
-      next.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+      // Instant, not smooth: a smooth scroll paints over several frames and the
+      // remote then feels like it lags behind every press.
+      next.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' })
+      invalidateSpatialCache()
     }
   }
 
+  // Anything that can move a target drops the measured list.
+  const onScroll = () => invalidateSpatialCache()
+  const observer = new MutationObserver(() => invalidateSpatialCache())
+  observer.observe(document.body, { childList: true, subtree: true })
+
   document.addEventListener('focusin', onFocusIn)
   document.addEventListener('keydown', onKeyDown, true)
+  window.addEventListener('scroll', onScroll, true)
   return () => {
+    observer.disconnect()
+    window.removeEventListener('scroll', onScroll, true)
     document.removeEventListener('focusin', onFocusIn)
     document.removeEventListener('keydown', onKeyDown, true)
   }

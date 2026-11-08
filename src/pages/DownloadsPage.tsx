@@ -12,6 +12,31 @@ function progressPercent(job: DownloadJob): number {
   return Math.max(0, Math.min(99, Math.round((job.bytesDone / job.bytesTotal) * 100)))
 }
 
+/** Rate observed for each running job, so a row can estimate its own finish. */
+const rateSamples = new Map<string, { bytes: number; at: number; rate: number }>()
+
+function etaLabel(job: DownloadJob): string | null {
+  if (job.state !== 'downloading' || !job.bytesTotal) return null
+  const now = Date.now()
+  const previous = rateSamples.get(job.id)
+  if (!previous || job.bytesDone < previous.bytes) {
+    rateSamples.set(job.id, { bytes: job.bytesDone, at: now, rate: 0 })
+  } else if (now - previous.at >= 700 && job.bytesDone > previous.bytes) {
+    const instant = (job.bytesDone - previous.bytes) / ((now - previous.at) / 1000)
+    // Smoothed, so the estimate does not jump with every progress event.
+    const rate = previous.rate ? previous.rate * 0.6 + instant * 0.4 : instant
+    rateSamples.set(job.id, { bytes: job.bytesDone, at: now, rate })
+  }
+  const rate = rateSamples.get(job.id)?.rate ?? 0
+  const remaining = job.bytesTotal - job.bytesDone
+  if (rate < 1024 || remaining <= 0) return null
+  const seconds = remaining / rate
+  if (seconds < 45) return 'less than a minute left'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `about ${minutes} min left`
+  return `about ${Math.floor(minutes / 60)} h ${minutes % 60} min left`
+}
+
 function watchHref(job: DownloadJob): string {
   const query = new URLSearchParams({ local: job.id })
   if (job.kind === 'series') {
@@ -67,6 +92,15 @@ function JobRow({ job }: { job: DownloadJob }) {
   const ready = job.state === 'completed'
   const running = job.state === 'downloading' || job.state === 'queued'
   const size = job.bytesTotal || job.bytesDone
+  // Progress events carry the byte count; the clock is what turns it into a
+  // time remaining, so a running row re-reads its estimate every second.
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (job.state !== 'downloading') return
+    const id = window.setInterval(() => tick((value) => value + 1), 1_000)
+    return () => window.clearInterval(id)
+  }, [job.state])
+  const eta = etaLabel(job)
 
   const play = async () => {
     setBusy(true)
@@ -112,6 +146,7 @@ function JobRow({ job }: { job: DownloadJob }) {
             <p className="mt-1 text-[10px] text-ink-mute">
               {formatBytes(job.bytesDone)}
               {job.bytesTotal ? ` of ${formatBytes(job.bytesTotal)}` : ''} · {percent}%
+              {eta ? ` · ${eta}` : ''}
               {job.state === 'queued' ? ' · waiting for playback to stop' : ''}
             </p>
           </>

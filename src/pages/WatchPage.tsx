@@ -243,12 +243,17 @@ export default function WatchPage() {
   // "Go back" on the error panel looked like dead buttons. The place the
   // player was opened from is the title page (live channels have none).
   const exit = () => {
-    if (!title) {
+    // A channel opened from Home, from Search or from a rail must go back to
+    // exactly that place — the live branch used to send everyone to /live, and
+    // a search result lost the query it was found with.
+    const depth = (window.history.state as { idx?: number } | null)?.idx
+    if (typeof depth === 'number' && depth > 0) {
       navigate(-1)
       return
     }
-    if (kind === 'live') {
-      navigate('/live', { replace: true })
+    // Opened cold (a deep link or a notification): there is nothing to go back to.
+    if (!title || kind === 'live') {
+      navigate('/', { replace: true })
       return
     }
     navigate(`/title/${kind}/${title.id}`, { replace: true })

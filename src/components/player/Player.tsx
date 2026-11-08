@@ -336,7 +336,15 @@ export function Player({
         const absoluteUrl = new URL(url, window.location.href).toString()
         tsPlayer = mpegts.createPlayer(
           { type: 'mpegts', isLive: true, url: absoluteUrl },
-          { enableWorker: true, liveBufferLatencyChasing: false, lazyLoad: false, enableStashBuffer: true },
+          {
+            enableWorker: true,
+            liveBufferLatencyChasing: false,
+            lazyLoad: false,
+            enableStashBuffer: true,
+            // A bigger initial stash rides out a slow edge instead of letting
+            // the picture run dry between segments.
+            stashInitialSize: 4 * 1024,
+          },
         )
         tsRef.current = tsPlayer
         tsPlayer.attachMediaElement(video)
@@ -402,7 +410,13 @@ export function Player({
           lowLatencyMode: false,
           // Never fetch a rendition taller than the screen; it only wastes bandwidth.
           capLevelToPlayerSize: true,
-          ...(slowLink ? { abrEwmaDefaultEstimate: 600_000, maxBufferLength: 20 } : { maxBufferLength: 30 }),
+          // The forward buffer is what decides whether a slow patch is visible.
+          // A 20-second ceiling ran dry on every hiccup, so a thin link keeps a
+          // full half-minute and a healthy one builds a minute and more.
+          ...(slowLink
+            ? { abrEwmaDefaultEstimate: 900_000, maxBufferLength: 30, maxMaxBufferLength: 60 }
+            : { abrEwmaDefaultEstimate: 2_000_000, maxBufferLength: 60, maxMaxBufferLength: 120 }),
+          maxBufferSize: 60 * 1000 * 1000,
           // Keep enough history for a usable live timeshift window.
           backBufferLength: isLive ? 1800 : 60,
         })

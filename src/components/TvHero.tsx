@@ -18,10 +18,10 @@ function TvClock() {
 
   return (
     <div className="text-right">
-      <p className="tabular text-[0.86rem] font-bold leading-tight text-white">
+      <p className="tabular text-[0.7rem] font-bold leading-tight text-white">
         {now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
       </p>
-      <p className="mt-0.5 text-[0.5rem] font-semibold uppercase tracking-[0.14em] text-ink-soft">
+      <p className="mt-0.5 text-[0.44rem] font-semibold uppercase tracking-[0.14em] text-ink-soft">
         {now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
       </p>
     </div>
@@ -65,7 +65,7 @@ export function TvHero({
 
   return (
     <section className="tv-hero">
-      <div className="relative min-h-[34rem] overflow-hidden rounded-[10px] border border-stroke">
+      <div className="relative min-h-[25.5rem] overflow-hidden rounded-[10px] border border-stroke">
         <Art
           src={title.backdrop || title.poster}
           title={title.name}
@@ -83,24 +83,24 @@ export function TvHero({
         />
         <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-canvas via-canvas/55 to-transparent" />
 
-        <div className="relative flex h-full flex-col p-9">
+        <div className="relative flex h-full flex-col p-7">
           {/* The signed-in profile stays out of the artwork; only the clock sits here. */}
           <div className="flex items-start justify-end gap-6">
             <TvClock />
           </div>
 
-          <div key={title.id} className="mt-auto max-w-[44rem] pb-2 pt-12">
+          <div key={title.id} className="mt-auto max-w-[33rem] pb-1 pt-9">
             {title.vnteraOriginal ? (
               <span className="mb-2 inline-block rounded-[2px] bg-white/10 px-2 py-1 text-[0.48rem] font-extrabold uppercase tracking-[0.14em] text-crimson backdrop-blur">
                 Vntera Original
               </span>
             ) : null}
 
-            <h1 className="text-[2.25rem] font-black uppercase leading-[0.95] tracking-[-0.03em] text-white drop-shadow-2xl">
+            <h1 className="text-[1.65rem] font-black uppercase leading-[0.95] tracking-[-0.03em] text-white drop-shadow-2xl">
               {nameWithoutYear(title.name)}
             </h1>
 
-            <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.7rem] font-semibold text-ink-soft">
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.6rem] font-semibold text-ink-soft">
               <span>{title.kind === 'series' ? 'Series' : 'Movie'}</span>
               {title.year ? <span>· {title.year}</span> : null}
               {runtime ? <span>· {runtime}</span> : null}
@@ -116,30 +116,32 @@ export function TvHero({
             </div>
 
             {title.plot ? (
-              <p className="mt-3.5 max-w-[38rem] text-[0.75rem] leading-relaxed text-ink-soft line-clamp-4">{title.plot}</p>
+              <p className="mt-2.5 max-w-[30rem] text-[0.64rem] leading-relaxed text-ink-soft line-clamp-3">{title.plot}</p>
             ) : null}
 
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              <button onClick={onPlay} className="btn btn-primary !px-6 !py-3" data-nav="true">
-                <Icon name="play" size={18} />
-                <span className="text-[0.72rem] font-bold">Play Now</span>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button onClick={onPlay} className="btn btn-primary !px-4 !py-2" data-nav="true">
+                <Icon name="play" size={16} />
+                <span className="text-[0.62rem] font-bold">Play Now</span>
               </button>
-              <Link to={detailsHref(title)} className="btn btn-secondary !px-6 !py-3" data-nav="true">
-                <Icon name="info" size={17} />
-                <span className="text-[0.72rem] font-bold">More Info</span>
+              <Link to={detailsHref(title)} className="btn btn-secondary !px-4 !py-2" data-nav="true">
+                <Icon name="info" size={15} />
+                <span className="text-[0.62rem] font-bold">More Info</span>
               </Link>
               <button
                 onClick={onToggleList}
-                className="icon-btn !h-10 !w-10"
+                className="icon-btn !h-9 !w-9"
                 data-nav="true"
                 aria-label={inList ? 'Remove from My List' : 'Add to My List'}
               >
-                <Icon name={inList ? 'check' : 'plus'} size={18} />
+                {/* A heart reads as "save for later" at ten feet; the plus read
+                    as "zoom in". Filled crimson once the title is saved. */}
+                <Icon name="heart" size={17} className={inList ? 'text-crimson' : undefined} />
               </button>
             </div>
 
             {slideCount > 1 ? (
-              <div className="mt-6 flex items-center gap-1.5" aria-label="Featured movies">
+              <div className="mt-4 flex items-center gap-1.5" aria-label="Featured movies">
                 {Array.from({ length: slideCount }, (_, i) => (
                   <button
                     key={i}
@@ -169,9 +171,9 @@ export function TvHero({
 
       {picks.length ? (
         <aside className="tv-hero-side">
-          <h2 className="text-[0.8rem] font-bold text-white">You might also like this</h2>
+          <h2 className="text-[0.7rem] font-bold text-white">You might also like this</h2>
           <div className="tv-hero-picks">
-            {picks.slice(0, 6).map((pick) => (
+            {picks.slice(0, 4).map((pick) => (
               <PosterCard key={`${pick.key}-${pick.id}`} title={pick} />
             ))}
           </div>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CatalogSnapshot, Title } from '../types'
-import { featuredChannels } from './catalog'
+import { featuredChannels, hasFreshLiveCatalog } from './catalog'
 
 function channel(id: number, name: string): Title {
   return {
@@ -35,6 +35,22 @@ function snapshot(channels: Title[]): CatalogSnapshot {
   }
 }
 
+describe('live catalog freshness', () => {
+  it('retries a fresh snapshot with no live channels', () => {
+    const cached = snapshot([])
+    cached.builtAt = 9_999
+
+    expect(hasFreshLiveCatalog(cached, 10_000)).toBe(false)
+  })
+
+  it('keeps a non-empty live snapshot fresh within the refresh window', () => {
+    const cached = snapshot([channel(1, 'LBC')])
+    cached.builtAt = 9_999
+
+    expect(hasFreshLiveCatalog(cached, 10_000)).toBe(true)
+  })
+})
+
 describe('featured Home channel shortcuts', () => {
   it('returns exact configured matches in requested order and excludes similar names', () => {
     const result = featuredChannels(
@@ -55,6 +71,16 @@ describe('featured Home channel shortcuts', () => {
       'beIN SPORTS LOW 1',
     ])
     expect(result.map(({ channel: item }) => item.id)).toEqual([1, 2, 3, 4])
+  })
+
+  it('prefers the re-provisioned Al Jadeed feed over its stale legacy alias', () => {
+    const current = channel(565419, 'ALJADEED TV')
+    const stale = channel(502720, 'Al Jadeed')
+
+    expect(featuredChannels(snapshot([stale, current]))[0]).toEqual({
+      channel: current,
+      label: 'Al Jadeed',
+    })
   })
 
   it('omits unavailable shortcuts instead of inventing channels', () => {

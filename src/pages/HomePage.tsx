@@ -20,7 +20,7 @@ import { HorrorBand } from '../components/HorrorBand'
 import { GenreBand } from '../components/GenreBand'
 import { Icon } from '../components/Icons'
 import { usePullToRefresh } from '../lib/hooks'
-import { detectFormFactor } from '../lib/platform'
+import { currentFormFactor } from '../lib/platform'
 import {
   createArtworkUsage,
   reserveTitles,
@@ -44,9 +44,9 @@ import { useHeroHistory } from '../store/heroHistory'
 import { continueWatching, useLibrary } from '../store/library'
 import type { CatalogSnapshot, Provider, Title } from '../types'
 
-/** Home rail brands, in the requested order. IMDb sits between Disney+ and WWE. */
+/** Home rail brands. IMDb leads the page as its own row above these. */
 type HomeRailBrand = Provider | 'imdb'
-const BRAND_RAIL_ORDER: HomeRailBrand[] = ['netflix', 'prime', 'shahid', 'disney', 'imdb', 'wwe']
+const BRAND_RAIL_ORDER: HomeRailBrand[] = ['netflix', 'prime', 'shahid', 'disney', 'wwe', 'imdb']
 const RAIL_LIMIT = 24
 const PROVIDER_MIN_ITEMS = 10
 const TOP_TEN_COUNT = 10
@@ -260,7 +260,7 @@ export default function HomePage() {
   const resetShortcuts = useShortcuts((s) => s.reset)
   const pull = usePullToRefresh(refresh)
   // A television gets the ten-foot layout: icon rail, hero with a shortlist.
-  const isTV = useMemo(() => detectFormFactor() === 'tv', [])
+  const isTV = useMemo(() => currentFormFactor() === 'tv', [])
 
   // Every rail rolls forward one page per UTC week, so the whole page keeps
   // surfacing new artwork-backed movies instead of freezing on one slice.
@@ -298,6 +298,12 @@ export default function HomePage() {
   const rows = useMemo(
     () => computeHomeRows(movies, weekIndex, rotationIndex, heroIds, catalogProgress < 100),
     [movies, weekIndex, rotationIndex, heroIds, catalogProgress],
+  )
+  // IMDb is not a panel category: the row curates the catalog's top-rated
+  // movies. It sits right under Top 10 in the requested order.
+  const imdbRail = useMemo(
+    () => rows.brands.find((entry) => entry.brand === 'imdb')?.titles ?? [],
+    [rows],
   )
   // Live music channels, cached per catalogue so back navigation stays instant.
   const music = useMemo(() => (snapshot ? musicChannelTitles(snapshot.channels) : []), [snapshot])
@@ -395,7 +401,7 @@ export default function HomePage() {
         {isTV ? (
           <TvHero
             title={hero}
-            picks={rows.blockbusters.slice(0, 6)}
+            picks={rows.blockbusters.slice(0, 4)}
             onPlay={() =>
               navigate(`/watch/${hero.kind}/${hero.id}${hero.kind === 'series' ? '?season=1&episode=1' : ''}`)
             }
@@ -472,13 +478,32 @@ export default function HomePage() {
             <ShortcutChannelRail entries={shortcuts} onEdit={() => setEditorOpen(true)} />
           </div>
 
-          <ContinueRail entries={continueEntries} title="Continue Watching" arrows={false} />
-
           {rows.topTen.length ? <TopTenRail titles={rows.topTen} arrows={false} /> : null}
+
+          {/* The requested television order: Top 10, then IMDb, then the music
+              stories, then Continue Watching and the brand rows below. */}
+          {imdbRail.length ? (
+            <PosterRail
+              titles={imdbRail}
+              lead={<ProviderLogoCard provider="imdb" />}
+              arrows={false}
+              minItems={PROVIDER_MIN_ITEMS}
+            />
+          ) : null}
+
+          {music.length ? (
+            <Rail arrows={false}>
+              {music.map((channel) => (
+                <ChannelStoryCard key={channel.key} channel={channel} />
+              ))}
+            </Rail>
+          ) : null}
+
+          <ContinueRail entries={continueEntries} title="Continue Watching" arrows={false} />
 
           {/* Brand, Kids and Anime rows are labelled by their logo card, so they
               carry no heading of their own. */}
-          {rows.brands.map(({ brand, titles }, index) => (
+          {rows.brands.filter((entry) => entry.brand !== 'imdb').map(({ brand, titles }, index) => (
             <Fragment key={brand}>
               {titles.length ? (
                 <PosterRail
@@ -490,8 +515,8 @@ export default function HomePage() {
               ) : null}
               {/* The page's only Horror section, right after Netflix and Prime Video. */}
               {index === 1 && rows.horror.length ? <HorrorBand titles={rows.horror} /> : null}
-              {/* Action sits between IMDb and WWE, the middle of the brand rows. */}
-              {index === 4 && rows.action.length ? (
+              {/* Action closes the brand block, just before WWE. */}
+              {index === 3 && rows.action.length ? (
                 <GenreBand
                   label={BANDS.action.label}
                   titles={rows.action}
@@ -520,14 +545,6 @@ export default function HomePage() {
               background={BANDS.drama.background}
               accent={BANDS.drama.accent}
             />
-          ) : null}
-
-          {music.length ? (
-            <Rail arrows={false}>
-              {music.map((channel) => (
-                <ChannelStoryCard key={channel.key} channel={channel} />
-              ))}
-            </Rail>
           ) : null}
 
           <PosterRail title="Blockbusters" titles={rows.blockbusters} arrows={false} />

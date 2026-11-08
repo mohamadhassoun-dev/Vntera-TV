@@ -44,10 +44,32 @@ export default function App() {
   const [booted, setBooted] = useState(false)
   /** The launch intro has played out (or been skipped). */
   const [introDone, setIntroDone] = useState(false)
+  /** Home's first screen is built, so the launch cover can hand over. */
+  const [homeReady, setHomeReady] = useState(false)
 
   const catalogProgress = useCatalog((s) => s.progress)
   const catalogStatus = useCatalog((s) => s.status)
   const snapshot = useCatalog((s) => s.snapshot)
+
+  // Pick the home page's rails while the intro is still playing, so the cover
+  // lifts onto a finished first screen instead of a page whose rows are still
+  // arriving one by one.
+  useEffect(() => {
+    if (status !== 'authed' && status !== 'reauth') return
+    if (!snapshot || catalogStatus !== 'ready' || homeReady) return
+    let cancelled = false
+    void import('./pages/HomePage')
+      .then((module) => module.prewarmHomeRows(snapshot))
+      .then(() => {
+        if (!cancelled) setHomeReady(true)
+      })
+      .catch(() => {
+        if (!cancelled) setHomeReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [snapshot, catalogStatus, status, homeReady])
 
   useEffect(() => {
     void bootstrap()
@@ -147,7 +169,19 @@ export default function App() {
   const booting = status === 'booting'
   const showIntro = booting || !(booted && introDone)
 
-  if (booting) return <Splash progress={catalogProgress} intro onDone={() => setIntroDone(true)} />
+  // Signed in but the first screen is not built yet: the sting loops.
+  const waitForFirstScreen = (status === 'authed' || status === 'reauth') && !homeReady
+
+  if (booting) {
+    return (
+      <Splash
+        progress={catalogProgress}
+        intro
+        waitFor={waitForFirstScreen}
+        onDone={() => setIntroDone(true)}
+      />
+    )
+  }
 
   let content: React.ReactNode
 
@@ -213,7 +247,14 @@ export default function App() {
   return (
     <>
       {content}
-      {showIntro ? <Splash progress={catalogProgress} intro onDone={() => setIntroDone(true)} /> : null}
+      {showIntro ? (
+        <Splash
+          progress={catalogProgress}
+          intro
+          waitFor={waitForFirstScreen}
+          onDone={() => setIntroDone(true)}
+        />
+      ) : null}
     </>
   )
 }

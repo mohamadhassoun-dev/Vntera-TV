@@ -13,7 +13,7 @@ export const SEARCH_DEBOUNCE_MS = 300
 /** Channels pinned to the "Featured Channels" rail. The panel is matched by name
  *  (IDs differ per reseller), so both the configured id and a name match are used. */
 export const FEATURED_CHANNELS: Array<{ id?: number; names?: string[]; label: string }> = [
-  { names: ['al jadeed', 'jadeed'], label: 'Al Jadeed' },
+  { names: ['al jadeed tv', 'aljadeed tv', 'al jadeed', 'jadeed'], label: 'Al Jadeed' },
   { names: ['mtv lebanon', 'mtv'], label: 'MTV Lebanon' },
   { names: ['lbc', 'lbci'], label: 'LBC' },
   {

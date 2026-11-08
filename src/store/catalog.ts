@@ -35,6 +35,11 @@ interface CatalogStore {
 const cacheKey = (account: string) => `catalog:v3:${account}`
 const legacyKey = (account: string) => `catalog:v2:${account}`
 
+/** A fresh snapshot without live channels is incomplete and should be retried. */
+export function hasFreshLiveCatalog(snapshot: CatalogSnapshot | null, now = Date.now()): boolean {
+  return Boolean(snapshot && snapshot.channels.length > 0 && now - snapshot.builtAt < REFRESH_INTERVAL_MS)
+}
+
 /**
  * A 60k-title snapshot is one enormous object graph, and handing it to IndexedDB
  * in a single call blocks the UI for hundreds of milliseconds (seconds on a
@@ -158,10 +163,12 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
     const run = async () => {
       const cached = await readCache(account)
       if (cached) await warmSnapshot(cached)
-      const fresh = cached && Date.now() - cached.builtAt < REFRESH_INTERVAL_MS
       if (cached && !opts.force) {
         set({ snapshot: cached, status: 'ready', progress: 100, phase: '' })
-        if (fresh) return
+        // A failed/empty live-stream response must not be treated as a complete
+        // fresh catalog: otherwise Live TV and Home shortcuts stay empty for six
+        // hours even when the provider has recovered. Retry the catalog instead.
+        if (hasFreshLiveCatalog(cached)) return
       } else if (!opts.force) {
         set({ status: 'loading', phase: 'Connecting to Vntera', progress: 4 })
       } else {

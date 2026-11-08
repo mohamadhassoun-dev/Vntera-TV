@@ -87,9 +87,12 @@ export function Rail({
     const el = ref.current
     if (!el) return
     const check = () => {
-      const cards = [...el.querySelectorAll('a')].filter(
-        (a) => !a.hasAttribute('data-logo-card') && a.offsetParent !== null,
-      )
+      // `offsetParent` is null for everything inside a `content-visibility:auto`
+      // section that has not been laid out yet — which is every rail below the
+      // first screen. Counting that as "no cards" removed those rails for good,
+      // so the brand rows and IMDb never appeared at all. The DOM count is the
+      // truthful one: a card whose artwork failed has already removed itself.
+      const cards = [...el.querySelectorAll('a')].filter((a) => !a.hasAttribute('data-logo-card'))
       setTooFew(cards.length < minItems)
     }
     check()
