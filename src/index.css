@@ -379,7 +379,10 @@
     height: 6px;
     border-radius: 999px;
     background: #00e676;
-    animation: pulse-dot 1.6s infinite ease-in-out;
+    /* Deliberately still. A home page carries a few hundred LIVE badges, and a
+       pulsing dot on every one of them kept the whole page repainting: idle
+       frames went from 17 ms to 283 ms, which is what made the remote feel
+       sluggish over the long feed rows. */
   }
 
   .rail {
@@ -724,6 +727,9 @@
   animation-name: hero-dot-fill;
   animation-timing-function: linear;
   animation-fill-mode: forwards;
+  /* Its own layer: the ten-minute fill otherwise repaints the hero — and the
+     rails under it — on every frame while the page is sitting still. */
+  will-change: transform;
 }
 
 @keyframes hero-dot-fill {
