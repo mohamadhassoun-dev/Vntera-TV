@@ -31,24 +31,29 @@ const feed = (key: string) => {
 }
 
 describe('live feeds', () => {
-  it('picks every channel of the named feed and nothing else', () => {
+  it('carries every feed of the brand, not just the one named in the heading', () => {
     const channels = [
-      channel(1, 'TOD beIN EVENTS 1'),
-      channel(2, 'TOD beIN EVENTS 2'),
-      channel(3, 'TOD SPORT 1'),
-      channel(4, 'BEIN SPORT 1 4K'),
+      channel(1, 'NetFlix Kids'),
+      channel(2, 'NETFLIX WWE'),
+      channel(3, 'NetFlix Crime'),
+      channel(4, 'NetFlix HollywooD'),
+      channel(5, 'SHAHID SPORT 1'),
     ]
-    expect(pickFeedChannels(channels, feed('tod-bein-events')).map((c) => c.id)).toEqual([1, 2])
-    expect(pickFeedChannels(channels, feed('bein-hdr'))).toEqual([])
+    expect(pickFeedChannels(channels, feed('netflix-kids')).map((c) => c.id)).toEqual([1, 2, 3, 4])
   })
 
-  it('matches the HDR feed without swallowing the whole beIN pack', () => {
+  it('keeps brands apart: the beIN row does not swallow TOD or MBC', () => {
     const channels = [
-      channel(1, 'BEIN HDR 4K'),
-      channel(2, 'BEIN 2 HDR 4K'),
-      channel(3, 'BEIN SPORT 1 4K'),
+      channel(1, 'TOD beIN EVENTS 1'),
+      channel(2, 'BEIN SPORT 1 4K'),
+      channel(3, 'BEIN SPORTS NEWS'),
+      channel(4, '|AR.MBC| MBC TOW'),
+      channel(5, 'SHAHID TASH'),
     ]
-    expect(pickFeedChannels(channels, feed('bein-hdr')).map((c) => c.id)).toEqual([1, 2])
+    expect(pickFeedChannels(channels, feed('tod-bein-events')).map((c) => c.id)).toEqual([1])
+    expect(pickFeedChannels(channels, feed('bein-hdr')).map((c) => c.id)).toEqual([2, 3])
+    expect(pickFeedChannels(channels, feed('mbc-tow')).map((c) => c.id)).toEqual([4])
+    expect(pickFeedChannels(channels, feed('shahid-tash')).map((c) => c.id)).toEqual([5])
   })
 
   it('lends a feed logo to channels that have none of their own', () => {
@@ -85,7 +90,7 @@ describe('live feeds', () => {
   })
 
   it('uses the published brand logo when no channel in the feed has artwork', () => {
-    const channels = [channel(1, 'MBC TOW 4k'), channel(2, 'MBC TOW HD')]
+    const channels = [channel(1, 'MBC TOW 4k'), channel(2, 'MBC ZOOM HD')]
     const picked = pickFeedChannels(channels, feed('mbc-tow'))
     expect(picked).toHaveLength(2)
     expect(picked[0].poster).toBe(feed('mbc-tow').fallbackLogo)

@@ -1,21 +1,24 @@
 import type { Title } from '../types'
+import { arabicChannelLabel } from './arabicChannels'
+import { channelFamilyKey } from './channelFamilies'
 import { channelArtSrc } from './normalize'
 
 /**
  * Live-channel feeds that sit next to the brand rows on Home.
  *
- * The panel groups channels by category, but these seven feeds are spread over
- * a dozen categories each (ZEE alone is filed under India, the UK, Egypt, the
- * UAE and Bangladesh), so they are picked by name instead. That
- * is also what keeps them current: a channel the panel adds to one of these
- * feeds tomorrow shows up without a code change or a stream id.
+ * The panel groups channels by category, but these feeds are spread over a
+ * dozen categories each (ZEE alone is filed under India, the UK, Egypt, the
+ * UAE and Bangladesh), so they are collected as one brand family — the very
+ * grouping the channel card's feed picker lists, which is why a family's rail
+ * carries exactly the feeds that dialog offers (all seventeen MBC feeds, all
+ * eighteen Netflix feeds, all one hundred and seventeen beIN feeds …).
  */
 export interface LiveFeedDefinition {
   key: string
   /** Section heading on Home. */
   label: string
-  /** Channel names that belong to the feed. */
-  match: RegExp
+  /** Brand the rail collects, as keyed by `channelFamilyKey`. */
+  familyKey: string
   /**
    * Logo shown for every card in the feed when a channel has no usable logo of
    * its own — including when its panel URL is dead. Fetched once from the
@@ -25,47 +28,39 @@ export interface LiveFeedDefinition {
 }
 
 export const LIVE_FEEDS: readonly LiveFeedDefinition[] = [
-  { key: 'zee-tv', label: 'ZEE TV', match: /\bzee\b/i, fallbackLogo: '/logos/feeds/zee-tv.jpg' },
+  { key: 'zee-tv', label: 'ZEE TV', familyKey: 'zee', fallbackLogo: '/logos/feeds/zee-tv.jpg' },
   {
     key: 'tod-bein-events',
     label: 'TOD beIN EVENTS',
-    match: /\btod\s+be?in\s+events\b/i,
+    familyKey: 'tod',
     fallbackLogo: '/logos/feeds/tod-bein-events.png',
   },
   {
     key: 'bein-hdr',
     label: 'BEIN HDR',
-    match: /\bbe?in\b.*\bhdr\b/i,
+    familyKey: 'bein',
     fallbackLogo: '/logos/feeds/bein-hdr.png',
   },
   {
     key: 'shahid-tash',
-    label: 'SHAHID TASH',
-    match: /shahid\s*tash/i,
+    label: 'SHAHID',
+    familyKey: 'shahid',
     fallbackLogo: '/logos/feeds/shahid-tash.png',
   },
-  {
-    key: 'mbc-tow',
-    label: 'MBC TOW',
-    match: /\bmbc\b.*\btow\b/i,
-    fallbackLogo: '/logos/feeds/mbc-tow.png',
-  },
+  { key: 'mbc-tow', label: 'MBC', familyKey: 'mbc', fallbackLogo: '/logos/feeds/mbc-tow.png' },
   {
     key: 'spotify-kawa',
-    label: 'SPOTIFY Kawa',
-    match: /spotify\s*kawa/i,
+    label: 'SPOTIFY',
+    familyKey: 'spotify',
     fallbackLogo: '/logos/feeds/spotify-kawa.png',
   },
   {
     key: 'netflix-kids',
-    label: 'NetFlix Kids',
-    match: /netflix\s*kids/i,
+    label: 'NetFlix',
+    familyKey: 'netflix',
     fallbackLogo: '/logos/feeds/netflix-kids.png',
   },
 ] as const
-
-/** How many channels a Home feed rail carries — enough for every event feed. */
-export const FEED_LIMIT = 30
 
 export function feedDefinition(key: string): LiveFeedDefinition | undefined {
   return LIVE_FEEDS.find((feed) => feed.key === key)
@@ -118,24 +113,27 @@ function borrowLogo(channel: Title, donors: readonly Title[]): string | undefine
 }
 
 /**
- * The feed's channels, every one of them carrying an image.
+ * Every feed of the brand, each one carrying an image.
  *
  * A channel without a logo borrows one from the closest-named channel in the
  * same feed; a feed where nothing has artwork shows the brand's own logo on all
  * its cards. The returned titles are copies, so the resolved artwork is used by
  * the card without touching the catalogue entry itself.
  */
-export function pickFeedChannels(
-  channels: readonly Title[],
-  feed: LiveFeedDefinition,
-  limit = FEED_LIMIT,
-): Title[] {
-  const members = channels
-    .filter((channel) => channel.kind === 'live' && feed.match.test(channel.name))
-    .sort(compareChannels)
-  if (!members.length) return []
+export function pickFeedChannels(channels: readonly Title[], feed: LiveFeedDefinition): Title[] {
   // channelArtSrc re-applies the bundled logos, so a catalogue cached before a
   // logo was added still shows the right image without re-syncing the panel.
+  const members = channels
+    .filter(
+      (channel) =>
+        channel.kind === 'live' &&
+        // Panel section tags ("|AR.MBC|", "AR: ") are not part of the brand, so
+        // they are trimmed before keying — otherwise every tagged channel lands
+        // in one meaningless "AR" family.
+        channelFamilyKey(arabicChannelLabel(channel.name)) === feed.familyKey,
+    )
+    .sort(compareChannels)
+  if (!members.length) return []
   const donors = members.filter((channel) => channelArtSrc(channel))
   const seen = new Set<number>()
   const out: Title[] = []
@@ -144,7 +142,6 @@ export function pickFeedChannels(
     seen.add(channel.id)
     const poster = channelArtSrc(channel) ?? borrowLogo(channel, donors) ?? feed.fallbackLogo
     out.push({ ...channel, poster, hasArtwork: true })
-    if (out.length >= limit) break
   }
   return out
 }

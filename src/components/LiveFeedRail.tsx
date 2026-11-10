@@ -47,14 +47,15 @@ function FeedChannelTile({ channel, fallback }: { channel: Title; fallback: stri
 
 /**
  * A plain live-channel row for one panel feed (ZEE TV, TOD beIN EVENTS …).
- * Deliberately unadorned: no stage artwork, no oversized heading, so it reads
- * as a quiet sibling of the brand rails it sits beside.
+ * Deliberately unadorned: no stage artwork, no oversized heading and no count
+ * beside the name, so it reads as a quiet sibling of the brand rails it sits
+ * beside.
  */
 export function LiveFeedRail({ feedKey, channels }: { feedKey: string; channels: Title[] }) {
   const feed = feedDefinition(feedKey)
   if (!feed || !channels.length) return null
   return (
-    <Rail title={feed.label} meta={`${channels.length} live`} arrows={false} minItems={1}>
+    <Rail title={feed.label} arrows={false} minItems={1}>
       {channels.map((channel) => (
         <FeedChannelTile key={channel.id} channel={channel} fallback={feed.fallbackLogo} />
       ))}
