@@ -24,6 +24,13 @@
 # Android packages are versioned by file name, so serve them as downloads.
 AddType application/vnd.android.package-archive .apk
 
+# The host's defaults here are legacy: a manifest as text/plain and scripts as
+# application/x-javascript. Browsers still run the app, but the PWA manifest is
+# only read when it arrives as JSON, and strict clients refuse the old JS type.
+AddType application/manifest+json .webmanifest
+AddType text/javascript .js
+AddType text/css .css
+
 <IfModule mod_headers.c>
   # Hashed build output never changes; keep HTML fresh.
   <FilesMatch "\.(js|css|woff2?|png|jpe?g|webp|svg|mp4|apk)$">
