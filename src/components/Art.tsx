@@ -10,10 +10,12 @@ interface ArtProps {
   priority?: boolean
   /** Called when a real image URL fails; lets cards remove themselves. */
   onFail?: () => void
+  /** Called once a real image paints, so a card can judge what arrived. */
+  onLoad?: (image: HTMLImageElement) => void
 }
 
 /** Artwork with generated cinematic fallback: missing images never leave a hole. */
-export function Art({ src, title, kind = 'poster', className, seed, priority, onFail }: ArtProps) {
+export function Art({ src, title, kind = 'poster', className, seed, priority, onFail, onLoad }: ArtProps) {
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [src])
   const generated = useMemo(() => {
@@ -34,6 +36,7 @@ export function Art({ src, title, kind = 'poster', className, seed, priority, on
         setFailed(true)
         if (src) onFail?.()
       }}
+      onLoad={(event) => onLoad?.(event.currentTarget)}
       className={className}
     />
   )

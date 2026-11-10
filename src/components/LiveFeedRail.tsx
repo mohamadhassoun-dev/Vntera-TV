@@ -4,8 +4,7 @@ import { Art } from './Art'
 import { LiveBadge } from './Badges'
 import { Rail } from './Rails'
 import { arabicChannelLabel } from '../lib/arabicChannels'
-import { feedDefinition } from '../lib/liveFeeds'
-import { channelArtSrc } from '../lib/normalize'
+import { feedDefinition, usableChannelArt } from '../lib/liveFeeds'
 import type { Title } from '../types'
 
 /**
@@ -16,6 +15,11 @@ import type { Title } from '../types'
  */
 function FeedChannelTile({ channel, fallback }: { channel: Title; fallback: string }) {
   const [failed, setFailed] = useState(false)
+  // A panel "logo" that answers with a one-pixel spacer (Google image search
+  // thumbnails do) paints nothing, so it is treated as a failed image too.
+  const settled = (image: HTMLImageElement) => {
+    if (image.naturalWidth <= 1) setFailed(true)
+  }
   // Panel prefixes like "|AR.MBC|" are section tags, not part of the name.
   const label = arabicChannelLabel(channel.name)
   return (
@@ -27,11 +31,12 @@ function FeedChannelTile({ channel, fallback }: { channel: Title; fallback: stri
     >
       <span className="relative block aspect-video w-full overflow-hidden rounded-[4px] border border-stroke bg-gradient-to-br from-layer-2 to-canvas transition-colors group-hover:border-white/30">
         <Art
-          src={failed ? fallback : channelArtSrc(channel)}
+          src={failed ? fallback : usableChannelArt(channel)}
           title={label}
           kind="channel"
           seed={label}
           onFail={failed ? undefined : () => setFailed(true)}
+          onLoad={failed ? undefined : settled}
           className="h-full w-full object-contain p-2 transition-transform duration-300 group-hover:scale-105"
         />
         <span className="absolute left-1 top-1">

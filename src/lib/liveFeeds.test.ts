@@ -85,6 +85,22 @@ describe('live feeds', () => {
     expect(picked.find((c) => c.id === 4)?.poster).toBe('https://cdn.example.com/zee-alwan.png')
   })
 
+  it('treats a one-pixel Google thumbnail as no artwork and borrows a real logo', () => {
+    const blank = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ9DJtI0szPPxQ0meYNkI4i3GRXrGNgNqxCg5tYP-CKTg&s'
+    const channels = [
+      channel(1, 'BEIN SPORTS NEWS', { poster: 'https://cdn.example.com/bein-news.png', hasArtwork: true }),
+      channel(2, 'BEIN ENTERTAINEMENT', { poster: blank, hasArtwork: true }),
+    ]
+    const picked = pickFeedChannels(channels, feed('bein-hdr'))
+    expect(picked.map((c) => c.poster)).toEqual(['https://cdn.example.com/bein-news.png', 'https://cdn.example.com/bein-news.png'])
+  })
+
+  it('falls back to the brand logo when every candidate image is blank', () => {
+    const blank = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ9DJtI0szPPxQ0meYNkI4i3GRXrGNgNqxCg5tYP-CKTg&s'
+    const channels = [channel(1, 'MBC TOW', { poster: blank, hasArtwork: true })]
+    expect(pickFeedChannels(channels, feed('mbc-tow'))[0].poster).toBe(feed('mbc-tow').fallbackLogo)
+  })
+
   it('ships a local brand logo for every feed', () => {
     for (const entry of LIVE_FEEDS) expect(entry.fallbackLogo).toMatch(/^\/logos\/feeds\//)
   })

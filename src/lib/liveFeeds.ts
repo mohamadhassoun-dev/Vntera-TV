@@ -87,6 +87,24 @@ function nameTokens(name: string): Set<string> {
 }
 
 /**
+ * Logos that are not images at all once the browser fetches them.
+ *
+ * Some panel entries point at a Google image-search thumbnail
+ * (encrypted-tbn*.gstatic.com), which answers with a one-pixel spacer instead of
+ * the logo, so the tile renders empty. Treating those as "no artwork" lets the
+ * channel borrow a real logo from the same feed, which is the rule the feed
+ * rails follow everywhere else.
+ */
+const BLANK_ART = /(?:encrypted-tbn\d*\.gstatic\.com|gstatic\.com\/images\?)/i
+
+/** The channel's own logo, when it is a URL that actually paints. */
+export function usableChannelArt(channel: Title): string | undefined {
+  const src = channelArtSrc(channel)
+  if (!src || src.startsWith('data:') || BLANK_ART.test(src)) return undefined
+  return src
+}
+
+/**
  * The logo a channel without artwork borrows: the feed mate whose name shares
  * the most words with it, so "ZEE ALWAN Egypt" gets ZEE ALWAN's logo rather
  * than whichever ZEE feed happened to carry one.
@@ -98,6 +116,8 @@ function borrowLogo(channel: Title, donors: readonly Title[]): string | undefine
   let bestScore = -1
   let bestTokens = Infinity
   for (const donor of donors) {
+    const art = usableChannelArt(donor)
+    if (!art) continue
     const tokens = nameTokens(donor.name)
     let score = 0
     for (const token of tokens) if (own.has(token)) score += 1
@@ -109,7 +129,7 @@ function borrowLogo(channel: Title, donors: readonly Title[]): string | undefine
       bestTokens = tokens.size
     }
   }
-  return best ? channelArtSrc(best) : undefined
+  return best ? usableChannelArt(best) : undefined
 }
 
 /**
@@ -134,13 +154,13 @@ export function pickFeedChannels(channels: readonly Title[], feed: LiveFeedDefin
     )
     .sort(compareChannels)
   if (!members.length) return []
-  const donors = members.filter((channel) => channelArtSrc(channel))
+  const donors = members.filter((channel) => usableChannelArt(channel))
   const seen = new Set<number>()
   const out: Title[] = []
   for (const channel of members) {
     if (seen.has(channel.id)) continue
     seen.add(channel.id)
-    const poster = channelArtSrc(channel) ?? borrowLogo(channel, donors) ?? feed.fallbackLogo
+    const poster = usableChannelArt(channel) ?? borrowLogo(channel, donors) ?? feed.fallbackLogo
     out.push({ ...channel, poster, hasArtwork: true })
   }
   return out
