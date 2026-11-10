@@ -64,8 +64,8 @@ export const LIVE_FEEDS: readonly LiveFeedDefinition[] = [
   },
 ] as const
 
-/** How many channels a Home feed rail carries. */
-export const FEED_LIMIT = 24
+/** How many channels a Home feed rail carries — enough for every event feed. */
+export const FEED_LIMIT = 30
 
 export function feedDefinition(key: string): LiveFeedDefinition | undefined {
   return LIVE_FEEDS.find((feed) => feed.key === key)
