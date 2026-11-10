@@ -18,6 +18,7 @@ import { ShortcutEditor } from '../components/ShortcutEditor'
 import { ContinueRail, PosterRail, Rail, ShortcutChannelRail, TopTenRail } from '../components/Rails'
 import { HorrorBand } from '../components/HorrorBand'
 import { GenreBand } from '../components/GenreBand'
+import { LiveFeedRail } from '../components/LiveFeedRail'
 import { Icon } from '../components/Icons'
 import { usePullToRefresh } from '../lib/hooks'
 import { currentFormFactor } from '../lib/platform'
@@ -38,6 +39,7 @@ import { arabicChannelFamilies } from '../lib/arabicChannels'
 import { isHiddenFromHome } from '../lib/hidden'
 import { pickHorrorTitles } from '../lib/horror'
 import { BANDS, pickBandTitles } from '../lib/genreBands'
+import { liveFeedChannels } from '../lib/liveFeeds'
 import { categoriesWithCounts, useCatalog } from '../store/catalog'
 import { defaultShortcutItems, resolveShortcuts, useShortcuts } from '../store/shortcuts'
 import { useHeroHistory } from '../store/heroHistory'
@@ -305,6 +307,12 @@ export default function HomePage() {
     () => rows.brands.find((entry) => entry.brand === 'imdb')?.titles ?? [],
     [rows],
   )
+  // The seven named live feeds shown beside their brand rows.
+  const feeds = useMemo(
+    () => (snapshot ? liveFeedChannels(snapshot.channels) : new Map<string, Title[]>()),
+    [snapshot],
+  )
+  const feed = (key: string) => feeds.get(key) ?? []
   // Live music channels, cached per catalogue so back navigation stays instant.
   const music = useMemo(() => (snapshot ? musicChannelTitles(snapshot.channels) : []), [snapshot])
   // Arabic broadcasters for the closing grid; one card per brand, logos first.
@@ -513,17 +521,31 @@ export default function HomePage() {
                   minItems={PROVIDER_MIN_ITEMS}
                 />
               ) : null}
-              {/* The page's only Horror section, right after Netflix and Prime Video. */}
-              {index === 1 && rows.horror.length ? <HorrorBand titles={rows.horror} /> : null}
-              {/* Action closes the brand block, just before WWE. */}
-              {index === 3 && rows.action.length ? (
-                <GenreBand
-                  label={BANDS.action.label}
-                  titles={rows.action}
-                  href={`/movies?genre=${encodeURIComponent(BANDS.action.genre)}`}
-                  background={BANDS.action.background}
-                  accent={BANDS.action.accent}
-                />
+              {/* Next to Prime: the ZEE TV feeds, then Horror, then the two beIN
+                  feeds asked for beside Horror. */}
+              {index === 1 ? (
+                <>
+                  <LiveFeedRail feedKey="zee-tv" channels={feed('zee-tv')} />
+                  {rows.horror.length ? <HorrorBand titles={rows.horror} /> : null}
+                  <LiveFeedRail feedKey="tod-bein-events" channels={feed('tod-bein-events')} />
+                  <LiveFeedRail feedKey="bein-hdr" channels={feed('bein-hdr')} />
+                </>
+              ) : null}
+              {/* Next to Disney: the SHAHID TASH feed, Action, then MBC TOW. */}
+              {index === 3 ? (
+                <>
+                  <LiveFeedRail feedKey="shahid-tash" channels={feed('shahid-tash')} />
+                  {rows.action.length ? (
+                    <GenreBand
+                      label={BANDS.action.label}
+                      titles={rows.action}
+                      href={`/movies?genre=${encodeURIComponent(BANDS.action.genre)}`}
+                      background={BANDS.action.background}
+                      accent={BANDS.action.accent}
+                    />
+                  ) : null}
+                  <LiveFeedRail feedKey="mbc-tow" channels={feed('mbc-tow')} />
+                </>
               ) : null}
             </Fragment>
           ))}
@@ -536,6 +558,9 @@ export default function HomePage() {
             <PosterRail titles={rows.anime} lead={<ProviderLogoCard provider="anime" />} arrows={false} />
           ) : null}
 
+          {/* Next to Anime: the SPOTIFY Kawa feed. */}
+          <LiveFeedRail feedKey="spotify-kawa" channels={feed('spotify-kawa')} />
+
           {/* Drama closes the curated bands, between Anime and Music. */}
           {rows.drama.length ? (
             <GenreBand
@@ -546,6 +571,9 @@ export default function HomePage() {
               accent={BANDS.drama.accent}
             />
           ) : null}
+
+          {/* Next to Drama: the NetFlix Kids feed. */}
+          <LiveFeedRail feedKey="netflix-kids" channels={feed('netflix-kids')} />
 
           <PosterRail title="Blockbusters" titles={rows.blockbusters} arrows={false} />
           <PosterRail title="New on Vntera" titles={rows.fresh} arrows={false} />

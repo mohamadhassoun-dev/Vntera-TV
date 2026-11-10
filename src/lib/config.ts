@@ -30,6 +30,17 @@ export const FEATURED_CHANNELS: Array<{ id?: number; names?: string[]; label: st
  *  stream id. A transparent wordmark sits well on the card's dark backdrop. */
 export const CHANNEL_ART: Record<number, string> = {
   549233: '/logos/spacetoon.png',
+  // The ZEE Arabic feeds ship without a logo, and the borrowed ZEE TV mark made
+  // four different channels look identical on Home. Bundled brand logos keep
+  // every card distinct without depending on a remote image host.
+  528214: '/logos/zee-alwan.png',
+  528215: '/logos/zee-alwan.png',
+  556187: '/logos/zee-alwan.png',
+  501219: '/logos/zee-alwan.png',
+  528216: '/logos/zee-aflam.png',
+  528217: '/logos/zee-aflam.png',
+  501218: '/logos/zee-aflam.png',
+  549809: '/logos/zee-one.png',
 }
 
 export const PROVIDER_LABELS: Record<Provider, string> = {
