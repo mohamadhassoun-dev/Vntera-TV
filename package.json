@@ -24,6 +24,7 @@
     "deploy": "node scripts/deploy-site.mjs"
   },
   "dependencies": {
+    "@capacitor-community/admob": "^8.3.0",
     "@capacitor/android": "^8.6.0",
     "@capacitor/core": "^8.6.0",
     "@capacitor/screen-orientation": "^8.0.2",

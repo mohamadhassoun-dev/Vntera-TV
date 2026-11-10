@@ -28,6 +28,11 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
 
+        <!-- AdMob application id; app-ads.txt at the web root authorises the domain. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-4709384892686731~2904033269" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

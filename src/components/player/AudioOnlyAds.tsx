@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '../Icons'
+import { adsSupported, hideAdsBanner, showAdsBanner } from '../../lib/admob'
 
 interface PlatformAd {
   label: string
@@ -51,10 +52,30 @@ const ADS: PlatformAd[] = [
 
 export function AudioOnlyAds({ title }: { title: string }) {
   const [index, setIndex] = useState(0)
+  const [banner, setBanner] = useState(false)
 
   useEffect(() => {
     const timer = window.setInterval(() => setIndex((value) => (value + 1) % ADS.length), 8000)
     return () => window.clearInterval(timer)
+  }, [])
+
+  // The AdMob banner belongs to this advertising panel alone: it arrives with the
+  // panel and leaves with it, so no other screen ever shows an ad.
+  useEffect(() => {
+    if (!adsSupported()) return
+    let live = true
+    showAdsBanner().then((ok) => {
+      if (!live) {
+        if (ok) void hideAdsBanner()
+        return
+      }
+      setBanner(ok)
+    })
+    return () => {
+      live = false
+      setBanner(false)
+      void hideAdsBanner()
+    }
   }, [])
 
   const ad = ADS[index]
@@ -65,7 +86,7 @@ export function AudioOnlyAds({ title }: { title: string }) {
         className="absolute inset-0 transition-colors duration-700"
         style={{ background: `radial-gradient(circle at 50% 42%, ${ad.tint}55, #0b0b0f 72%)` }}
       />
-      <div className="relative flex h-full items-center justify-center px-6">
+      <div className={`relative flex h-full items-center justify-center px-6 ${banner ? 'pb-14' : ''}`}>
         <div className="pointer-events-auto flex max-w-sm flex-col items-center gap-3 text-center">
           <span className="rounded-[2px] border border-white/25 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.22em] text-white/65">
             Sponsored · Vntera
@@ -93,6 +114,9 @@ export function AudioOnlyAds({ title }: { title: string }) {
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-ink-mute">
             Audio only · {title}
           </p>
+          {banner && (
+            <p className="text-[9px] uppercase tracking-[0.2em] text-white/35">Advertisement</p>
+          )}
         </div>
       </div>
     </div>
