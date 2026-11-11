@@ -9,6 +9,11 @@
   RewriteRule ^xtream/(.*)$ xtream-proxy.php?__p=$1 [QSA,L]
   RewriteRule ^xtream$ xtream-proxy.php [QSA,L]
 
+  # Live HLS segments. The panel writes absolute /hls/<hash>/<n>.ts paths into its
+  # playlists, so without this rule the HLS fallback asked this site for a file
+  # that only the panel has, and every channel that needed the fallback looked dead.
+  RewriteRule ^hls/(.*)$ xtream-proxy.php?__p=hls/$1 [QSA,L]
+
   # Deploy check: reports the panel origin this site resolved.
   RewriteRule ^healthz$ xtream-proxy.php?__health=1 [QSA,L]
 

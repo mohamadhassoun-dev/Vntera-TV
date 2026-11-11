@@ -104,6 +104,30 @@ unset($_GET['__p'], $_GET['__health']);
 $query = http_build_query($_GET);
 $target = $panel['origin'] . '/' . ltrim($path, '/') . ($query !== '' ? '?' . $query : '');
 
+/**
+ * Media goes straight to the panel.
+ *
+ * Relaying a movie or a live transport stream through PHP halved the delivered
+ * bitrate (a 3 MB range took 13 s instead of 5 s) and delayed a live tune by
+ * eight seconds before the first byte, which is what made channels look dead.
+ * The panel serves the same bytes at full speed and already answers with
+ * `Access-Control-Allow-Origin: *`, so a redirect keeps the browser's own
+ * streaming logic (Range requests, workers) talking to the origin that has the
+ * file. The relay stays for the JSON API, which the browser cannot call directly
+ * once this site is HTTPS (an HTTP panel URL is mixed content) — so an HTTPS
+ * request keeps the old path instead of being redirected into a block.
+ */
+$isMedia = (bool) preg_match('#^(movie|series|live|hls)/#', ltrim($path, '/'));
+$https = ($_SERVER['HTTPS'] ?? '') !== '' && strtolower((string) ($_SERVER['HTTPS'] ?? '')) !== 'off';
+if (strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https') {
+    $https = true;
+}
+if ($isMedia && !$https) {
+    header('Cache-Control: no-store');
+    header('Location: ' . $target, true, 302);
+    exit;
+}
+
 // Forward only what the panel needs; browser cookies and origins stay here.
 $forward = ['Expect:'];
 foreach (['HTTP_ACCEPT', 'HTTP_RANGE', 'HTTP_IF_RANGE', 'HTTP_IF_NONE_MATCH', 'HTTP_IF_MODIFIED_SINCE', 'CONTENT_TYPE'] as $key) {
