@@ -64,7 +64,7 @@ export default function WatchPage() {
   const [waitedLong, setWaitedLong] = useState(false)
   useEffect(() => {
     if (snapshot) return
-    const timer = window.setTimeout(() => setWaitedLong(true), 20000)
+    const timer = window.setTimeout(() => setWaitedLong(true), 60000)
     return () => window.clearTimeout(timer)
   }, [snapshot])
 
@@ -324,7 +324,8 @@ export default function WatchPage() {
   }, [setOfflinePlayback, title?.id])
 
   if (!title || !src) {
-    const loading = !snapshot && catalogStatus !== 'error' && !waitedLong
+    const loading =
+      !snapshot && catalogStatus !== 'error' && (catalogStatus === 'loading' || !waitedLong)
     return (
       <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
         <div className="flex flex-col items-center gap-3 text-center">

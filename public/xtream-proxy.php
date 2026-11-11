@@ -133,7 +133,7 @@ if ($isMedia && !$https) {
     // below. Live transport streams and HLS segments have no such header and are
     // fastest straight from the panel.
     if (preg_match('#^(series|movie)/#', ltrim($path, '/')) === 1) {
-        serve_media($target);
+        serve_series($target);
         exit;
     }
     header('Location: ' . $target, true, 302);
@@ -188,67 +188,45 @@ function prune_media_cache(string $dir): void
     }
 }
 
-/**
- * Movies and episodes open with their MP4 header, and a player draws nothing
- * until it has read all of it (1.4 MB to 13 MB measured on the episodes
- * checked). The panel throttles one download to 66-220 KB/s and refuses
- * parallel ranges, while this server pulls the same bytes at ~9 MB/s, so the
- * opening of every film is kept here.
- *
- * The first viewer no longer waits for that cache to be filled: the panel's
- * bytes are passed straight through to the browser and written into the cache
- * on the way past, so the picture starts at the panel's own first-byte time
- * and the head fills behind it. Once it is on disk a request is answered from
- * disk in ~0.02 s.
- */
-function media_send_headers(int $start, ?int $last, int $total, string $type, bool $openEnded, bool $faststart = false): void
+/** Caches the opening bytes of one episode; null when they cannot be fetched. */
+function series_head(string $target): ?array
 {
-    // A request that begins mid-file is a range even when it has no end: a film
-    // whose `moov` sits at the end asks for `bytes=S-`, and answering that with
-    // 200 makes the player throw the tail away and start again at byte zero.
-    //
-    // The same is true of the first request. A film with its `moov` at the front
-    // draws a frame from the opening, and the length-less 200 doubles this host's
-    // egress (450 vs 230 KB/s), so it keeps that; a film whose `moov` sits after
-    // several hundred megabytes of `mdat` can only be seeked when the answer
-    // carries a length, and without one the player waits through the whole file.
-    $declared = $total > 0 && $last !== null && ($start > 0 || !$faststart);
-    if ($declared && $last !== null && $total > 0) {
-        http_response_code(206);
-        header('Content-Range: bytes ' . $start . '-' . $last . '/' . $total);
-        // A declared length roughly halves this host's PHP egress (450 -> 230
-        // KB/s, measured), so only bounded requests carry one.
-        header('Content-Length: ' . ($last - $start + 1));
-    } else {
-        http_response_code(200);
+    $dir = media_cache_dir();
+    $key = sha1($target);
+    $headFile = $dir . '/' . $key . '.head';
+    $metaFile = $dir . '/' . $key . '.json';
+    if (is_file($headFile) && is_file($metaFile)) {
+        $meta = json_decode((string) @file_get_contents($metaFile), true);
+        if (is_array($meta) && (int) $meta['head'] === (int) @filesize($headFile)) {
+            @touch($headFile);
+            return [$headFile, $meta];
+        }
     }
-    header('Content-Type: ' . $type);
-    header('Accept-Ranges: bytes');
-    // Episode bytes are never worth caching — but `no-store` also drops egress
-    // from ~450 KB/s to ~230 KB/s, so the player only gets `private`.
-    header('Cache-Control: private, max-age=0');
-}
 
-/**
- * Asks the panel for a file's length with a one-byte range.
- *
- * Without it a bounded request carries no honest `Content-Range`, and a film
- * whose `moov` sits at the end (measured: `ftyp free mdat` on one 582 MB title)
- * has its tail request answered as if the file were two megabytes.
- */
-function media_probe_total(string $target): int
-{
-    $total = 0;
-    $ch = curl_init($target);
-    curl_setopt_array($ch, [
+    // A browser opens several range requests at once, so two processes can race
+    // for the same episode. Each one writes its own temporary file and the last
+    // rename wins; a shared `.part` left a half-written head behind and the
+    // episode then fell back to the panel and stalled.
+    $tmp = $headFile . '.part.' . getmypid() . '.' . mt_rand(1000, 9999);
+    $out = @fopen($tmp, 'wb');
+    if (!$out) {
+        return null;
+    }
+    // Ask the panel for the file's length first: a range that runs past the end
+    // of a short episode is refused outright, and that refusal used to send the
+    // episode back down the slow relay path.
+    $probe = curl_init($target);
+    $probeTotal = 0;
+    curl_setopt_array($probe, [
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_MAXREDIRS => 3,
         CURLOPT_CONNECTTIMEOUT => 15,
         CURLOPT_TIMEOUT => 30,
         CURLOPT_RANGE => '0-0',
-        CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$total): int {
+        CURLOPT_NOBODY => false,
+        CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$probeTotal): int {
             if (preg_match('#^content-range:\s*bytes\s+\d+-\d+/(\d+)#i', rtrim($line, "\r\n"), $m)) {
-                $total = (int) $m[1];
+                $probeTotal = (int) $m[1];
             }
             return strlen($line);
         },
@@ -256,219 +234,159 @@ function media_probe_total(string $target): int
             return strlen($data);
         },
     ]);
-    curl_exec($ch);
+    curl_exec($probe);
+    curl_close($probe);
+    $headWant = $probeTotal > 0 ? min(MEDIA_HEAD_BYTES, $probeTotal) : MEDIA_HEAD_BYTES;
+
+    $total = 0;
+    $type = 'video/mp4';
+    $ch = curl_init($target);
+    curl_setopt_array($ch, [
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 180,
+        CURLOPT_RANGE => '0-' . max(0, $headWant - 1),
+        CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$type, &$total): int {
+            $trimmed = rtrim($line, "\r\n");
+            if (preg_match('#^content-range:\s*bytes\s+\d+-\d+/(\d+)#i', $trimmed, $m)) {
+                $total = (int) $m[1];
+            } elseif (preg_match('#^content-type:\s*(.+)$#i', $trimmed, $m) && stripos($m[1], 'text/html') === false) {
+                $type = trim($m[1]);
+            }
+            return strlen($line);
+        },
+        CURLOPT_FILE => $out,
+    ]);
+    $ok = curl_exec($ch);
     curl_close($ch);
-    return $total;
-}
-
-/** True when the film's `moov` sits at the front, so the opening is enough. */
-function media_is_faststart(string $headFile): bool
-{
-    $handle = @fopen($headFile, 'rb');
-    if (!$handle) {
-        return false;
+    fclose($out);
+    if ($ok === false || !is_file($tmp) || (int) @filesize($tmp) < 65536) {
+        @unlink($tmp);
+        // Another process may have finished the same head while this one failed.
+        if (is_file($headFile) && (int) @filesize($headFile) >= 65536) {
+            $meta = json_decode((string) @file_get_contents($metaFile), true);
+            if (is_array($meta)) {
+                return [$headFile, $meta];
+            }
+        }
+        return null;
     }
-    $chunk = (string) fread($handle, 1048576);
-    fclose($handle);
-    return $chunk !== '' && strpos($chunk, 'moov') !== false;
-}
-
-function serve_media(string $target): void
-{
-    $dir = media_cache_dir();
-    // v2: entries written before the length was measured correctly claimed a
-    // two-megabyte film and served a wrong Content-Range, so they are ignored.
-    $key = sha1('v2|' . $target);
-    $headFile = $dir . '/' . $key . '.head';
-    $metaFile = $dir . '/' . $key . '.json';
-
-    // One writer per stream: a player opens several range requests at once and
-    // they would otherwise append into the same file twice.
-    $lock = @fopen($dir . '/' . $key . '.lock', 'c');
-    $writer = $lock ? flock($lock, LOCK_EX | LOCK_NB) : false;
-
-    $meta = null;
-    if (is_file($headFile) && is_file($metaFile)) {
-        $meta = json_decode((string) @file_get_contents($metaFile), true);
-        if (!is_array($meta) || (int) ($meta['head'] ?? -1) !== (int) @filesize($headFile)) {
-            $meta = null;
+    if (!@rename($tmp, $headFile)) {
+        @unlink($tmp);
+        if (!is_file($headFile)) {
+            return null;
         }
     }
-    $headLen = $meta ? (int) $meta['head'] : 0;
-    $total = $meta ? (int) $meta['total'] : 0;
-    $type = $meta && !empty($meta['type']) ? (string) $meta['type'] : 'video/mp4';
-    $faststart = $meta ? (bool) ($meta['faststart'] ?? false) : false;
-    if ($meta) {
-        @touch($headFile);
+    $head = (int) filesize($headFile);
+    $meta = ['total' => max($total, $head), 'head' => $head, 'type' => $type];
+    @file_put_contents($metaFile, json_encode($meta));
+    prune_media_cache($dir);
+    return [$headFile, $meta];
+}
+
+function serve_series(string $target): void
+{
+    $cached = series_head($target);
+    if ($cached === null) {
+        // The head could not be cached just now. Relay the bytes rather than
+        // sending the browser to the panel, which may refuse another range.
+        header('Cache-Control: private, max-age=0');
+        $ch = curl_init($target);
+        curl_setopt_array($ch, [
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 3,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $data): int {
+                echo $data;
+                flush();
+                return strlen($data);
+            },
+        ]);
+        if (!empty($_SERVER['HTTP_RANGE'])) {
+            curl_setopt($ch, CURLOPT_RANGE, str_replace('bytes=', '', (string) $_SERVER['HTTP_RANGE']));
+        }
+        curl_exec($ch);
+        curl_close($ch);
+        return;
     }
-    $range = trim((string) ($_SERVER['HTTP_RANGE'] ?? ''));
-    // Only a bounded or mid-file request needs the exact length: a player's first
-    // `bytes=0-` is answered without one, so a cold open must not pay for a probe.
-    if ($total <= 0) {
-        $total = media_probe_total($target);
-    }
-    $openEnded = $range === '' || (bool) preg_match('#^bytes=\d+-$#', $range);
+    [$headFile, $meta] = $cached;
+    $total = (int) $meta['total'];
+    $headLen = (int) $meta['head'];
+
+    $range = (string) ($_SERVER['HTTP_RANGE'] ?? '');
     $start = 0;
-    $last = $total > 0 ? $total - 1 : null;
+    $end = $total - 1;
     if ($range !== '' && preg_match('#bytes=(\d*)-(\d*)#', $range, $m)) {
         $start = $m[1] === '' ? 0 : (int) $m[1];
-        $openEnded = $m[2] === '';
-        if ($openEnded) {
-            $last = $total > 0 ? $total - 1 : null;
-        } else {
-            $last = $total > 0 ? min((int) $m[2], $total - 1) : (int) $m[2];
-        }
+        $end = $m[2] === '' ? $total - 1 : min((int) $m[2], $total - 1);
     }
-    if ($total > 0 && ($start >= $total || ($last !== null && $start > $last))) {
+    if ($start >= $total || $start > $end) {
         http_response_code(416);
         header('Content-Range: bytes */' . $total);
-        if ($lock) {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
         return;
     }
 
-    $state = [
-        'sent' => false,
-        'start' => $start,
-        'last' => $last,
-        'total' => $total,
-        'type' => $type,
-        'open' => $openEnded,
-        'cache' => null,
-        'left' => 0,
-        'status' => 0,
-        'fast' => $faststart,
-    ];
-
+    // A player's first request is open-ended (`bytes=0-`), and answering that
+    // with a declared length drops this host's PHP egress from ~450 KB/s to
+    // ~230 KB/s — measured four times, both ways. The whole file is streamed
+    // either way, so an unlengthy 200 costs nothing and doubles the rate the
+    // header arrives at; bounded requests keep their exact 206.
+    $openEnded = $range === '' || (bool) preg_match('#^bytes=0-$#', trim($range));
+    $length = $end - $start + 1;
+    http_response_code($range !== '' && !$openEnded ? 206 : 200);
+    header('Content-Type: ' . ((string) ($meta['type'] ?: 'video/mp4')));
+    header('Accept-Ranges: bytes');
+    if (!$openEnded) {
+        header('Content-Length: ' . $length);
+    }
+    if ($range !== '' && !$openEnded) {
+        header('Content-Range: bytes ' . $start . '-' . $end . '/' . $total);
+    }
+    // Episode bytes are never worth caching — but `no-store` also drops this
+    // host's PHP egress from ~450 KB/s to ~230 KB/s, so the player only gets
+    // `private` instead.
+    header('Cache-Control: private, max-age=0');
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD') {
-        media_send_headers($start, $last, $total, $type, $openEnded, $faststart);
-        if ($lock) {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
         return;
     }
 
-    // 1. Whatever the disk already holds goes out first — the warm path.
-    $servedTo = $start - 1;
-    if ($headLen > 0 && $start < $headLen) {
-        media_send_headers($start, $last, $total, $type, $openEnded, $faststart);
-        $state['sent'] = true;
-        $localEnd = min($headLen - 1, $last === null ? $headLen - 1 : $last);
+    // The cached head first: this is what the player needs before a frame.
+    if ($start < $headLen) {
+        $localEnd = min($end, $headLen - 1);
         $handle = @fopen($headFile, 'rb');
         if ($handle) {
             fseek($handle, $start);
             // 256 KB writes measured twice the throughput of fpassthru and of
             // 1 MB writes on this host (224 KB/s versus 458 KB/s).
-            $pos = $start;
-            while ($pos <= $localEnd && !feof($handle) && !connection_aborted()) {
-                $chunk = fread($handle, (int) min(262144, $localEnd - $pos + 1));
+            $left = $localEnd - $start + 1;
+            while ($left > 0 && !feof($handle)) {
+                $chunk = fread($handle, (int) min(262144, $left));
                 if ($chunk === false || $chunk === '') {
                     break;
                 }
                 echo $chunk;
                 flush();
-                $pos += strlen($chunk);
+                $left -= strlen($chunk);
             }
             fclose($handle);
-            $servedTo = $pos - 1;
         }
+        $start = $localEnd + 1;
     }
-
-    if ($last !== null && $servedTo >= $last) {
-        if ($lock) {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
+    if ($start > $end) {
         return;
     }
 
-    // 2. The remainder streams from the panel, and the bytes that belong to the
-    //    head are written into the cache while they travel.
-    $from = $servedTo + 1;
-    if ($writer && $from === $headLen && $headLen < MEDIA_HEAD_BYTES) {
-        $append = @fopen($headFile, 'ab');
-        if ($append) {
-            $state['cache'] = $append;
-            $state['left'] = MEDIA_HEAD_BYTES - $headLen;
-        }
-    }
-
+    // Everything past the head streams from the panel, as before.
     $ch = curl_init($target);
     curl_setopt_array($ch, [
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_MAXREDIRS => 3,
         CURLOPT_CONNECTTIMEOUT => 15,
         CURLOPT_TIMEOUT => 0,
-        CURLOPT_RANGE => $last === null ? $from . '-' : $from . '-' . $last,
-        CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$state): int {
-            $trimmed = rtrim($line, "\r\n");
-            // Some panels answer a film with a redirect to a second server. The
-            // hop's headers describe the redirect, not the film, so they are
-            // ignored and its body is dropped below.
-            if (preg_match('#^HTTP/\S+\s+(\d{3})#', $trimmed, $m)) {
-                $state['status'] = (int) $m[1];
-                return strlen($line);
-            }
-            if ($state['status'] !== 200 && $state['status'] !== 206) {
-                return strlen($line);
-            }
-            if (preg_match('#^content-range:\s*bytes\s+\d+-\d+/(\d+)#i', $trimmed, $m)) {
-                if ((int) $state['total'] <= 0) {
-                    $state['total'] = (int) $m[1];
-                }
-            } elseif (preg_match('#^content-length:\s*(\d+)#i', $trimmed, $m)) {
-                // A bounded response's length is the size of that slice, never
-                // the size of the film — using it made the bridge promise a
-                // range inside a two-megabyte film and players refused it.
-                if ((int) $state['total'] <= 0 && (int) $state['start'] === 0 && $state['last'] === null) {
-                    $state['total'] = (int) $m[1];
-                }
-            } elseif (preg_match('#^content-type:\s*(.+)$#i', $trimmed, $m) && stripos($m[1], 'text/html') === false) {
-                $state['type'] = trim($m[1]);
-            }
-            return strlen($line);
-        },
-        CURLOPT_WRITEFUNCTION => static function ($handle, string $data) use (&$state): int {
-            // Never pass a redirect's or an error page's body to the player, and
-            // never write it into the cache: an offset in the middle of a film
-            // would then be served from a file that starts with HTML.
-            if ($state['status'] !== 200 && $state['status'] !== 206) {
-                return strlen($data);
-            }
-            // The panel's headers arrive before its first body byte, so the
-            // real length is known by now and the promise we make is exact.
-            if (!$state['sent']) {
-                media_send_headers(
-                    (int) $state['start'],
-                    $state['last'],
-                    (int) $state['total'],
-                    (string) $state['type'],
-                    (bool) $state['open'],
-                    (bool) $state['fast']
-                );
-                $state['sent'] = true;
-            }
-            if ($state['cache']) {
-                $take = min(strlen($data), (int) $state['left']);
-                if ($take > 0) {
-                    @fwrite($state['cache'], $take === strlen($data) ? $data : substr($data, 0, $take));
-                    $state['left'] -= $take;
-                }
-                if ((int) $state['left'] <= 0 || $take < strlen($data)) {
-                    @fclose($state['cache']);
-                    $state['cache'] = null;
-                }
-            }
-            if (connection_aborted()) {
-                // The viewer closed the tab or seeked away. Stop pulling from the
-                // panel instead of holding this socket to the last byte: several
-                // abandoned transfers per host exhaust the player's connections
-                // and every later stream then waits for one that never ends.
-                return 0;
-            }
+        CURLOPT_RANGE => $start . '-' . $end,
+        CURLOPT_WRITEFUNCTION => static function ($handle, string $data): int {
             echo $data;
             flush();
             return strlen($data);
@@ -476,36 +394,6 @@ function serve_media(string $target): void
     ]);
     curl_exec($ch);
     curl_close($ch);
-
-    // Nothing usable came back (a dead id answers 403, a dead source 502). Say
-    // so instead of ending the request with an empty 200 the player waits on.
-    if (!$state['sent'] && !headers_sent()) {
-        http_response_code((int) $state['status'] >= 400 ? (int) $state['status'] : 502);
-        header('Content-Type: text/plain; charset=utf-8');
-        header('Cache-Control: private, max-age=0');
-        echo 'stream unavailable';
-    }
-
-    if ($state['cache']) {
-        @fclose($state['cache']);
-        $state['cache'] = null;
-    }
-    if ($writer) {
-        $head = (int) @filesize($headFile);
-        if ($head > 0) {
-            @file_put_contents($metaFile, json_encode([
-                'total' => (int) $state['total'] > $head ? (int) $state['total'] : 0,
-                'head' => $head,
-                'type' => (string) $state['type'],
-                'faststart' => media_is_faststart($headFile),
-            ]));
-            prune_media_cache($dir);
-        }
-    }
-    if ($lock) {
-        flock($lock, LOCK_UN);
-        fclose($lock);
-    }
 }
 
 // Forward only what the panel needs; browser cookies and origins stay here.
