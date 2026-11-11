@@ -31,6 +31,22 @@ const DEFAULT_PANEL = 'http://ontvflix.cc:8080';
 // How much of an episode's opening is cached, and the cache's disk ceiling.
 const MEDIA_HEAD_BYTES = 20 * 1024 * 1024;
 const MEDIA_CACHE_LIMIT = 3221225472; // 3 GB
+/**
+ * The stretch of a film handed to the player in one response.
+ *
+ * A player that asks for the whole file and is answered with a length-less 200
+ * reads it like a live stream: it sits about two seconds ahead, which is what a
+ * viewer feels as constant buffering. A bounded response with a real length is
+ * buffered in earnest instead, so the player builds a proper cushion (measured:
+ * 2.4 s endless against ~20 s+ windowed on the same film).
+ */
+const MEDIA_WINDOW_BYTES = 12 * 1024 * 1024;
+/** How much of a film is kept on disk past its cached head, per title. */
+const MEDIA_TAIL_BYTES = 96 * 1024 * 1024;
+/** How much the bridge pulls from the panel before handing it to the player. */
+const MEDIA_PULL_CHUNK = 2 * 1024 * 1024;
+/** A panel pull that delivers nothing for this long is abandoned, not held. */
+const MEDIA_PANEL_STALL_SECS = 12;
 
 /**
  * The Android/iOS shell runs the bundle on a local origin (http://localhost), so
@@ -367,6 +383,141 @@ function series_head(string $target): ?array
     return [$headFile, $meta];
 }
 
+/** The read-ahead ring of one title: bytes past the cached head, on disk. */
+function media_tail_paths(string $dir, string $key): array
+{
+    return [
+        'file' => $dir . '/' . $key . '.tail',
+        'meta' => $dir . '/' . $key . '.tail.json',
+        'lock' => $dir . '/' . $key . '.tail.lock',
+    ];
+}
+
+/** How many bytes past the head are published as safe to serve. */
+function media_tail_bytes(array $paths, int $headLen): int
+{
+    $meta = json_decode((string) @file_get_contents($paths['meta']), true);
+    if (!is_array($meta) || (int) ($meta['head'] ?? -1) !== $headLen) {
+        return 0;
+    }
+    $onDisk = (int) @filesize($paths['file']);
+    return max(0, min((int) ($meta['bytes'] ?? 0), $onDisk));
+}
+
+/** Echoes the part of [$offset, $end] already on disk; returns bytes sent. */
+function serve_cached_tail(array $paths, int $headLen, int $offset, int $end): int
+{
+    $available = media_tail_bytes($paths, $headLen);
+    if ($available <= 0) {
+        return 0;
+    }
+    $from = max($offset, $headLen);
+    $to = min($end, $headLen + $available - 1);
+    if ($to < $from) {
+        return 0;
+    }
+    $handle = @fopen($paths['file'], 'rb');
+    if (!$handle) {
+        return 0;
+    }
+    fseek($handle, $from - $headLen);
+    $left = $to - $from + 1;
+    $sent = 0;
+    while ($left > 0) {
+        $chunk = fread($handle, (int) min(262144, $left));
+        if ($chunk === false || $chunk === '') {
+            break;
+        }
+        echo $chunk;
+        flush();
+        $size = strlen($chunk);
+        $left -= $size;
+        $sent += $size;
+    }
+    fclose($handle);
+    return $sent;
+}
+
+/**
+ * Pulls one chunk from the panel into the read-ahead ring.
+ *
+ * Returns the bytes landed (0 when the pull failed, -1 when this offset is
+ * outside the ring and the caller should relay it directly). A panel that goes
+ * silent is dropped after MEDIA_PANEL_STALL_SECS, so a dead edge cannot hold a
+ * connection slot; the caller retries the same offset, which is what keeps the
+ * player's single request alive across a dropped panel connection.
+ */
+function pull_media_chunk(array $paths, string $target, int $headLen, int $offset, int $end): int
+{
+    $ringStart = $headLen;
+    if ($offset < $ringStart) {
+        return -1;
+    }
+    $ringEnd = $ringStart + MEDIA_TAIL_BYTES - 1;
+    if ($offset > $ringEnd) {
+        return -1;
+    }
+    $chunkEnd = min($end, $ringEnd, $offset + MEDIA_PULL_CHUNK - 1);
+    $handle = @fopen($paths['file'], 'c+b');
+    if (!$handle) {
+        return -1;
+    }
+    fseek($handle, $offset - $ringStart);
+    $written = 0;
+    $rangeStart = -1;
+    $ch = curl_init($target);
+    curl_setopt_array($ch, [
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 90,
+        CURLOPT_LOW_SPEED_LIMIT => 2048,
+        CURLOPT_LOW_SPEED_TIME => MEDIA_PANEL_STALL_SECS,
+        CURLOPT_RANGE => $offset . '-' . $chunkEnd,
+        CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$rangeStart): int {
+            if (preg_match('#^content-range:\s*bytes\s+(\d+)-#i', rtrim($line, "\r\n"), $m)) {
+                $rangeStart = (int) $m[1];
+            }
+            return strlen($line);
+        },
+        CURLOPT_WRITEFUNCTION => static function ($curl, string $data) use ($handle, &$written): int {
+            $size = strlen($data);
+            if ($size === 0) {
+                return 0;
+            }
+            $put = fwrite($handle, $data);
+            if ($put !== $size) {
+                return 0;
+            }
+            $written += $size;
+            return $size;
+        },
+    ]);
+    curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    fflush($handle);
+    fclose($handle);
+
+    // A panel that ignores the range answers 200 from the start of the file, and
+    // those bytes would sit at the wrong offset: keep them out of the ring.
+    $aligned = $status === 206 && ($rangeStart < 0 || $rangeStart === $offset);
+    $published = media_tail_bytes($paths, $headLen);
+    // Only a chunk that starts inside the published region extends it; a chunk
+    // written past a gap would make the served range non-contiguous.
+    $contiguous = $offset - $ringStart <= $published;
+    if ($written > 0 && $aligned && $contiguous) {
+        // Publish only what is complete, so a half-written chunk is never
+        // handed to a player as if it were the file.
+        $bytes = max($published, $offset - $ringStart + $written);
+        $tmp = $paths['meta'] . '.part.' . getmypid();
+        @file_put_contents($tmp, json_encode(['head' => $headLen, 'bytes' => $bytes]));
+        @rename($tmp, $paths['meta']);
+        return $written;
+    }
+    return 0;
+}
+
 /** True when an episode's `moov` sits in its opening, so a 200 can start it. */
 function series_is_faststart(string $headFile): bool
 {
@@ -422,11 +573,11 @@ function serve_series(string $target): void
         return;
     }
 
-    // A player's first request is open-ended (`bytes=0-`), and answering that
-    // with a declared length drops this host's PHP egress from ~450 KB/s to
-    // ~230 KB/s — measured four times, both ways. The whole file is streamed
-    // either way, so an unlengthy 200 costs nothing and doubles the rate the
-    // header arrives at; bounded requests keep their exact 206.
+    // A player's first request is open-ended (`bytes=0-`). Answering it with a
+    // length-less 200 made the player read the file like a live stream: it sat
+    // 2.4 s ahead for a whole minute while this host was delivering ~600 KB/s to
+    // the same film. A bounded window with a real length is buffered properly,
+    // and measured ~600 KB/s through this bridge, so the window is what ships.
     $openEnded = $range === '' || (bool) preg_match('#^bytes=0-$#', trim($range));
     // A film whose `moov` sits after hundreds of megabytes of media data cannot
     // start from a length-less 200: the player reads the file from the front and
@@ -434,6 +585,12 @@ function serve_series(string $target): void
     // ask for the tail at once.
     if ($openEnded && !series_is_faststart($headFile)) {
         $end = min($end, $headLen - 1);
+        $openEnded = false;
+    } elseif ($openEnded) {
+        // Otherwise hand over a window, not the whole file: with a declared
+        // length the player buffers it in earnest and asks for the next window
+        // when it needs it, which is the read-ahead this bridge is here to give.
+        $end = min($end, $start + MEDIA_WINDOW_BYTES - 1);
         $openEnded = false;
     }
     $length = $end - $start + 1;
@@ -480,13 +637,64 @@ function serve_series(string $target): void
         return;
     }
 
-    // Everything past the head streams from the panel, as before.
+    // Everything past the head: serve the read-ahead ring, and pull what is
+    // missing from the panel into it. One process fills the ring at a time; a
+    // second request for the same title streams straight through instead of
+    // writing over it.
+    $dir = media_cache_dir();
+    $paths = media_tail_paths($dir, sha1($target));
+    $lock = @fopen($paths['lock'], 'c');
+    $ownRing = $lock !== false && @flock($lock, LOCK_EX | LOCK_NB);
+    $stalls = 0;
+    while ($start <= $end && !connection_aborted()) {
+        if ($ownRing) {
+            $served = serve_cached_tail($paths, $headLen, $start, $end);
+            if ($served > 0) {
+                $start += $served;
+                $stalls = 0;
+                continue;
+            }
+            $pulled = pull_media_chunk($paths, $target, $headLen, $start, $end);
+            if ($pulled > 0) {
+                $stalls = 0;
+                // Bytes that could not be published as contiguous would spin this
+                // loop forever; hand the rest to the direct relay instead.
+                if (media_tail_bytes($paths, $headLen) <= $start - $headLen) {
+                    break;
+                }
+                continue;
+            }
+            if ($pulled < 0) {
+                break;
+            }
+            // A panel that keeps refusing this stretch must not spin forever.
+            if (++$stalls >= 3) {
+                break;
+            }
+            usleep(250000);
+            continue;
+        }
+        break;
+    }
+    if ($ownRing) {
+        @flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+    if ($start > $end) {
+        return;
+    }
+
+    // Whatever is left (ring full, another request filling it, or the panel
+    // refusing) streams straight from the panel as before. The low-speed guard
+    // keeps a dead edge from holding a slot for the rest of the response.
     $ch = curl_init($target);
     curl_setopt_array($ch, [
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_MAXREDIRS => 3,
         CURLOPT_CONNECTTIMEOUT => 15,
         CURLOPT_TIMEOUT => 0,
+        CURLOPT_LOW_SPEED_LIMIT => 2048,
+        CURLOPT_LOW_SPEED_TIME => MEDIA_PANEL_STALL_SECS,
         CURLOPT_RANGE => $start . '-' . $end,
         CURLOPT_WRITEFUNCTION => static function ($handle, string $data): int {
             echo $data;
