@@ -285,6 +285,18 @@ function series_head(string $target): ?array
     return [$headFile, $meta];
 }
 
+/** True when an episode's `moov` sits in its opening, so a 200 can start it. */
+function series_is_faststart(string $headFile): bool
+{
+    $handle = @fopen($headFile, 'rb');
+    if (!$handle) {
+        return false;
+    }
+    $chunk = (string) fread($handle, 1048576);
+    fclose($handle);
+    return $chunk !== '' && strpos($chunk, 'moov') !== false;
+}
+
 function serve_series(string $target): void
 {
     $cached = series_head($target);
@@ -334,6 +346,14 @@ function serve_series(string $target): void
     // either way, so an unlengthy 200 costs nothing and doubles the rate the
     // header arrives at; bounded requests keep their exact 206.
     $openEnded = $range === '' || (bool) preg_match('#^bytes=0-$#', trim($range));
+    // A film whose `moov` sits after hundreds of megabytes of media data cannot
+    // start from a length-less 200: the player reads the file from the front and
+    // never reaches the header. Answering the opening as a bounded 206 lets it
+    // ask for the tail at once.
+    if ($openEnded && !series_is_faststart($headFile)) {
+        $end = min($end, $headLen - 1);
+        $openEnded = false;
+    }
     $length = $end - $start + 1;
     http_response_code($range !== '' && !$openEnded ? 206 : 200);
     header('Content-Type: ' . ((string) ($meta['type'] ?: 'video/mp4')));
