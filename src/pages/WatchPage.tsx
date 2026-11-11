@@ -25,6 +25,7 @@ export default function WatchPage() {
   const numericId = Number(id)
 
   const snapshot = useCatalog((s) => s.snapshot)
+  const catalogStatus = useCatalog((s) => s.status)
   const settings = useSettings()
   const saveProgress = useLibrary((s) => s.saveProgress)
   const markWatched = useLibrary((s) => s.markWatched)
@@ -49,6 +50,14 @@ export default function WatchPage() {
   // Details page hands over an explicit choice: resume without asking, or start at zero.
   const resumeNow = params.get('resume') === '1'
   const restart = params.get('restart') === '1'
+
+  // A link opened cold (a share, a reload) starts before the catalogue is in
+  // memory, and the player used to read that as a dead stream. Ask for the
+  // catalogue and wait for it instead of showing the viewer a failure.
+  useEffect(() => {
+    if (snapshot || catalogStatus !== 'idle') return
+    void useCatalog.getState().load()
+  }, [snapshot, catalogStatus])
 
   const title = useMemo<Title | undefined>(() => {
     if (!snapshot) return undefined
@@ -306,10 +315,14 @@ export default function WatchPage() {
   }, [setOfflinePlayback, title?.id])
 
   if (!title || !src) {
+    const loading = !snapshot && catalogStatus !== 'error'
     return (
       <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
-        <div className="text-center">
-          <p className="text-sm text-ink-mute">Stream unavailable.</p>
+        <div className="flex flex-col items-center gap-3 text-center">
+          {loading ? (
+            <span className="h-10 w-10 animate-spin rounded-full border-2 border-white/25 border-t-crimson" />
+          ) : null}
+          <p className="text-sm text-ink-mute">{loading ? 'Getting this title ready…' : 'Stream unavailable.'}</p>
         </div>
       </div>
     )
