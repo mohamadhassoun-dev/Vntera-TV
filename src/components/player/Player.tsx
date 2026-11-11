@@ -1157,33 +1157,36 @@ export function Player({
         playsInline
         className={`h-full w-full object-contain ${audioOnly ? 'opacity-0' : 'opacity-100'} transition-opacity`}
         onClick={(event) => {
-          // The faded chrome is not clickable, so a tap that was aimed at one of
-          // its buttons used to land here and pause the film instead of opening
-          // the controls. A tap on a bare picture only ever brings them back.
-          if (!showControls) {
-            reveal()
-            return
-          }
-          setMenu('none')
           if (isLive) {
+            // The faded chrome is not clickable, so a tap that was aimed at one
+            // of its buttons used to land here and pause the channel instead of
+            // opening the controls. A tap on a bare picture only brings them back.
+            if (!showControls) {
+              reveal()
+              return
+            }
+            setMenu('none')
             togglePlay()
             reveal()
             return
           }
           // Films and episodes answer to the picture itself: the left third
-          // steps back ten seconds, the right third forward, and two taps in
-          // the middle pause. None of that needs the transport bar, which stays
-          // exactly where it is for anyone who prefers it.
+          // steps back ten seconds, the right third forward ten, and two taps in
+          // the middle pause. None of that needs the transport bar, and none of
+          // it waits for the chrome to be on screen first — a tap on the left or
+          // right edge seeks even while the controls are hidden.
           const box = event.currentTarget.getBoundingClientRect()
           const spot = box.width > 0 ? (event.clientX - box.left) / box.width : 0.5
-          if (spot < 1 / 3) {
-            seekBy(-10)
+          if (spot < 1 / 3 || spot > 2 / 3) {
+            setMenu('none')
+            seekBy(spot < 1 / 3 ? -10 : 10)
             return
           }
-          if (spot > 2 / 3) {
-            seekBy(10)
+          if (!showControls) {
+            reveal()
             return
           }
+          setMenu('none')
           const now = Date.now()
           if (now - lastTap.current < 350) {
             lastTap.current = 0
