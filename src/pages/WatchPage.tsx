@@ -59,6 +59,15 @@ export default function WatchPage() {
     void useCatalog.getState().load()
   }, [snapshot, catalogStatus])
 
+  // A catalogue that never arrives must not leave the viewer on a spinner for
+  // ever, so the wait is bounded and the old message takes over after it.
+  const [waitedLong, setWaitedLong] = useState(false)
+  useEffect(() => {
+    if (snapshot) return
+    const timer = window.setTimeout(() => setWaitedLong(true), 20000)
+    return () => window.clearTimeout(timer)
+  }, [snapshot])
+
   const title = useMemo<Title | undefined>(() => {
     if (!snapshot) return undefined
     const pool = kind === 'live' ? snapshot.channels : kind === 'series' ? snapshot.series : snapshot.movies
@@ -315,7 +324,7 @@ export default function WatchPage() {
   }, [setOfflinePlayback, title?.id])
 
   if (!title || !src) {
-    const loading = !snapshot && catalogStatus !== 'error'
+    const loading = !snapshot && catalogStatus !== 'error' && !waitedLong
     return (
       <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
         <div className="flex flex-col items-center gap-3 text-center">
