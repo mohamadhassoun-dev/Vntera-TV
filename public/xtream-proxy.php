@@ -28,6 +28,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 
 const DEFAULT_PANEL = 'http://ontvflix.cc:8080';
 
+// How much of an episode's opening is cached, and the cache's disk ceiling.
+const MEDIA_HEAD_BYTES = 20 * 1024 * 1024;
+const MEDIA_CACHE_LIMIT = 3221225472; // 3 GB
+
 /**
  * The Android/iOS shell runs the bundle on a local origin (http://localhost), so
  * its panel calls are cross-origin. No credentials or cookies are involved, so a
@@ -124,8 +128,207 @@ if (strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https')
 }
 if ($isMedia && !$https) {
     header('Cache-Control: no-store');
+    if (strpos(ltrim($path, '/'), 'series/') === 0) {
+        serve_series($target);
+        exit;
+    }
     header('Location: ' . $target, true, 302);
     exit;
+}
+
+/**
+ * Series episodes open with a huge MP4 header.
+ *
+ * The files are faststart, but their moov box measured 1.4 MB to 13 MB on the
+ * episodes checked, and a browser cannot draw a frame until it has all of it.
+ * The panel throttles one download to 66-220 KB/s and refuses parallel ranges
+ * (HTTP 406), so fetching that header straight from the panel took a minute or
+ * more and the player never left its buffering card. This server pulls the same
+ * bytes at ~20 MB/s, so the head of an episode is cached here and served at the
+ * client's own link speed; everything past the head streams from the panel.
+ */
+function media_cache_dir(): string
+{
+    $dir = dirname(__DIR__) . '/.mediacache';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+    return $dir;
+}
+
+/** Oldest episodes are dropped once the cache passes its cap. */
+function prune_media_cache(string $dir): void
+{
+    $files = glob($dir . '/*');
+    if (!$files) {
+        return;
+    }
+    $total = 0;
+    $entries = [];
+    foreach ($files as $file) {
+        $size = (int) @filesize($file);
+        $total += $size;
+        $entries[] = [(int) @filemtime($file), $file, $size];
+    }
+    if ($total <= MEDIA_CACHE_LIMIT) {
+        return;
+    }
+    sort($entries);
+    foreach ($entries as $entry) {
+        if ($total <= MEDIA_CACHE_LIMIT * 0.8) {
+            break;
+        }
+        if (@unlink($entry[1])) {
+            $total -= $entry[2];
+        }
+    }
+}
+
+/** Caches the opening bytes of one episode; null when they cannot be fetched. */
+function series_head(string $target): ?array
+{
+    $dir = media_cache_dir();
+    $key = sha1($target);
+    $headFile = $dir . '/' . $key . '.head';
+    $metaFile = $dir . '/' . $key . '.json';
+    if (is_file($headFile) && is_file($metaFile)) {
+        $meta = json_decode((string) @file_get_contents($metaFile), true);
+        if (is_array($meta) && (int) $meta['head'] === (int) @filesize($headFile)) {
+            @touch($headFile);
+            return [$headFile, $meta];
+        }
+    }
+
+    $tmp = $headFile . '.part';
+    $out = @fopen($tmp, 'wb');
+    if (!$out) {
+        return null;
+    }
+    $total = 0;
+    $type = 'video/mp4';
+    $ch = curl_init($target);
+    curl_setopt_array($ch, [
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 180,
+        CURLOPT_RANGE => '0-' . (MEDIA_HEAD_BYTES - 1),
+        CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$type, &$total): int {
+            $trimmed = rtrim($line, "\r\n");
+            if (preg_match('#^content-range:\s*bytes\s+\d+-\d+/(\d+)#i', $trimmed, $m)) {
+                $total = (int) $m[1];
+            } elseif (preg_match('#^content-type:\s*(.+)$#i', $trimmed, $m) && stripos($m[1], 'text/html') === false) {
+                $type = trim($m[1]);
+            }
+            return strlen($line);
+        },
+        CURLOPT_FILE => $out,
+    ]);
+    $ok = curl_exec($ch);
+    curl_close($ch);
+    fclose($out);
+    if ($ok === false || !is_file($tmp) || (int) @filesize($tmp) < 65536) {
+        @unlink($tmp);
+        return null;
+    }
+    rename($tmp, $headFile);
+    $head = (int) filesize($headFile);
+    $meta = ['total' => max($total, $head), 'head' => $head, 'type' => $type];
+    @file_put_contents($metaFile, json_encode($meta));
+    prune_media_cache($dir);
+    return [$headFile, $meta];
+}
+
+function serve_series(string $target): void
+{
+    $cached = series_head($target);
+    if ($cached === null) {
+        header('Location: ' . $target, true, 302);
+        return;
+    }
+    [$headFile, $meta] = $cached;
+    $total = (int) $meta['total'];
+    $headLen = (int) $meta['head'];
+
+    $range = (string) ($_SERVER['HTTP_RANGE'] ?? '');
+    $start = 0;
+    $end = $total - 1;
+    if ($range !== '' && preg_match('#bytes=(\d*)-(\d*)#', $range, $m)) {
+        $start = $m[1] === '' ? 0 : (int) $m[1];
+        $end = $m[2] === '' ? $total - 1 : min((int) $m[2], $total - 1);
+    }
+    if ($start >= $total || $start > $end) {
+        http_response_code(416);
+        header('Content-Range: bytes */' . $total);
+        return;
+    }
+
+    // A player's first request is open-ended (`bytes=0-`), and answering that
+    // with a declared length drops this host's PHP egress from ~450 KB/s to
+    // ~230 KB/s — measured four times, both ways. The whole file is streamed
+    // either way, so an unlengthy 200 costs nothing and doubles the rate the
+    // header arrives at; bounded requests keep their exact 206.
+    $openEnded = $range === '' || (bool) preg_match('#^bytes=0-$#', trim($range));
+    $length = $end - $start + 1;
+    http_response_code($range !== '' && !$openEnded ? 206 : 200);
+    header('Content-Type: ' . ((string) ($meta['type'] ?: 'video/mp4')));
+    header('Accept-Ranges: bytes');
+    if (!$openEnded) {
+        header('Content-Length: ' . $length);
+    }
+    if ($range !== '' && !$openEnded) {
+        header('Content-Range: bytes ' . $start . '-' . $end . '/' . $total);
+    }
+    // Episode bytes are never worth caching — but `no-store` also drops this
+    // host's PHP egress from ~450 KB/s to ~230 KB/s, so the player only gets
+    // `private` instead.
+    header('Cache-Control: private, max-age=0');
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD') {
+        return;
+    }
+
+    // The cached head first: this is what the player needs before a frame.
+    if ($start < $headLen) {
+        $localEnd = min($end, $headLen - 1);
+        $handle = @fopen($headFile, 'rb');
+        if ($handle) {
+            fseek($handle, $start);
+            // 256 KB writes measured twice the throughput of fpassthru and of
+            // 1 MB writes on this host (224 KB/s versus 458 KB/s).
+            $left = $localEnd - $start + 1;
+            while ($left > 0 && !feof($handle)) {
+                $chunk = fread($handle, (int) min(262144, $left));
+                if ($chunk === false || $chunk === '') {
+                    break;
+                }
+                echo $chunk;
+                flush();
+                $left -= strlen($chunk);
+            }
+            fclose($handle);
+        }
+        $start = $localEnd + 1;
+    }
+    if ($start > $end) {
+        return;
+    }
+
+    // Everything past the head streams from the panel, as before.
+    $ch = curl_init($target);
+    curl_setopt_array($ch, [
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 0,
+        CURLOPT_RANGE => $start . '-' . $end,
+        CURLOPT_WRITEFUNCTION => static function ($handle, string $data): int {
+            echo $data;
+            flush();
+            return strlen($data);
+        },
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
 }
 
 // Forward only what the panel needs; browser cookies and origins stay here.
