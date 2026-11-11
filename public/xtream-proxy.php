@@ -128,7 +128,11 @@ if (strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https')
 }
 if ($isMedia && !$https) {
     header('Cache-Control: no-store');
-    if (strpos(ltrim($path, '/'), 'series/') === 0) {
+    // Films and episodes are progressive MP4s that a player cannot start until
+    // it has read the whole movie header, so those two go through the head cache
+    // below. Live transport streams and HLS segments have no such header and are
+    // fastest straight from the panel.
+    if (preg_match('#^(series|movie)/#', ltrim($path, '/')) === 1) {
         serve_series($target);
         exit;
     }

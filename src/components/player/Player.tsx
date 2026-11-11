@@ -153,6 +153,8 @@ export function Player({
   const tuneStartedAt = useRef(0)
   const stallRetunes = useRef(0)
   const retuneTimer = useRef<number | null>(null)
+  /** When the picture was last tapped, so two taps in the middle pause or play. */
+  const lastTap = useRef(0)
 
   const settings = useSettings()
   const [playing, setPlaying] = useState(false)
@@ -1154,7 +1156,7 @@ export function Player({
         preload="auto"
         playsInline
         className={`h-full w-full object-contain ${audioOnly ? 'opacity-0' : 'opacity-100'} transition-opacity`}
-        onClick={() => {
+        onClick={(event) => {
           // The faded chrome is not clickable, so a tap that was aimed at one of
           // its buttons used to land here and pause the film instead of opening
           // the controls. A tap on a bare picture only ever brings them back.
@@ -1163,10 +1165,39 @@ export function Player({
             return
           }
           setMenu('none')
-          togglePlay()
+          if (isLive) {
+            togglePlay()
+            reveal()
+            return
+          }
+          // Films and episodes answer to the picture itself: the left third
+          // steps back ten seconds, the right third forward, and two taps in
+          // the middle pause. None of that needs the transport bar, which stays
+          // exactly where it is for anyone who prefers it.
+          const box = event.currentTarget.getBoundingClientRect()
+          const spot = box.width > 0 ? (event.clientX - box.left) / box.width : 0.5
+          if (spot < 1 / 3) {
+            seekBy(-10)
+            return
+          }
+          if (spot > 2 / 3) {
+            seekBy(10)
+            return
+          }
+          const now = Date.now()
+          if (now - lastTap.current < 350) {
+            lastTap.current = 0
+            togglePlay()
+            return
+          }
+          lastTap.current = now
           reveal()
         }}
-        onDoubleClick={() => void toggleFullscreen()}
+        onDoubleClick={() => {
+          // Live keeps the old double-tap-to-fill gesture; on VOD the second tap
+          // is the pause gesture above.
+          if (isLive) void toggleFullscreen()
+        }}
       />
 
       {/* audio-only: the empty video area becomes an in-house platform promo */}
