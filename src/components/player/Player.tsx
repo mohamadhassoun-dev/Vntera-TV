@@ -77,6 +77,15 @@ const RECOVER_AFTER_MS = 25_000
 const GIVE_UP_AFTER_MS = 45_000
 const LIVE_GIVE_UP_AFTER_MS = 25_000
 /**
+ * How long a live channel may take to show its first frame.
+ *
+ * A panel hands out an edge in 30-40 s on a busy channel, and the 25 s stall
+ * give-up used to retune a stream that was about to start: the tune restarted
+ * from zero and the channel never reached a picture. Nothing is abandoned
+ * before this, as long as the stream is still producing bytes.
+ */
+const LIVE_FIRST_FRAME_MS = 60_000
+/**
  * Gaps between automatic retunes of a live channel. Panels answer 503 while they
  * re-allocate a stream to another edge, so an instant error card was wrong there.
  */
@@ -688,7 +697,14 @@ export function Player({
       if (document.visibilityState !== 'visible') return
 
       const stalledFor = Date.now() - lastProgressAt
-      const giveUpAfter = isLive ? LIVE_GIVE_UP_AFTER_MS : GIVE_UP_AFTER_MS
+      // Before the first frame a live channel is still tuning, not stalled: the
+      // panel can take 30-40 s to open the stream, and retuning at 25 s threw
+      // away a tune that was about to produce a picture.
+      const giveUpAfter = isLive
+        ? hasPlayed.current
+          ? LIVE_GIVE_UP_AFTER_MS
+          : LIVE_FIRST_FRAME_MS
+        : GIVE_UP_AFTER_MS
       if (stalledFor >= giveUpAfter) {
         // A live channel that stopped producing data is retuned before the card:
         // dropping the dead request is usually all the panel needs to recover.
