@@ -79,6 +79,54 @@ function respond_json(int $status, array $body): void
 }
 
 /**
+ * Live transport streams are streamed here, not redirected to the panel.
+ *
+ * The panel answers a browser's own request for `/live/<u>/<p>/<id>.ts` with
+ * `200` and an empty body (`Content-Length: 0`), so the redirect handed the
+ * player nothing: every channel failed its tune and fell back to the panel's
+ * HLS, whose playlist never advances its media sequence and whose segments
+ * download at roughly half realtime. The same URL answers this server with
+ * bytes, so the stream is pulled here and written straight through — no
+ * buffering, no length, and an edge that goes silent is dropped after
+ * MEDIA_PANEL_STALL_SECS instead of holding the viewer forever.
+ */
+function relay_live(string $target): void
+{
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    @set_time_limit(0);
+    header('Content-Type: video/mp2t');
+    header('Cache-Control: no-store');
+    // Hosting proxies buffer by default, which would defeat a live stream.
+    header('X-Accel-Buffering: no');
+    header('Accept-Ranges: none');
+
+    $forward = ['Expect:', 'Accept-Encoding: identity'];
+    if (!empty($_SERVER['HTTP_RANGE'])) {
+        $forward[] = 'Range: ' . $_SERVER['HTTP_RANGE'];
+    }
+
+    $ch = curl_init($target);
+    curl_setopt_array($ch, [
+        CURLOPT_HTTPHEADER => $forward,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_TIMEOUT => 0,
+        CURLOPT_LOW_SPEED_LIMIT => 1024,
+        CURLOPT_LOW_SPEED_TIME => MEDIA_PANEL_STALL_SECS,
+        CURLOPT_WRITEFUNCTION => static function ($handle, string $data): int {
+            echo $data;
+            flush();
+            return strlen($data);
+        },
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+/**
  * Cheap "does this stream deliver bytes" check for the in-app stream checker.
  *
  * A browser cannot answer that itself: an open-ended MP4 answer is endless, and
@@ -232,6 +280,12 @@ if ($isMedia && !$https) {
     // fastest straight from the panel.
     if (preg_match('#^(series|movie)/#', ltrim($path, '/')) === 1) {
         serve_series($target);
+        exit;
+    }
+    // A channel's raw transport stream is relayed, because the panel serves an
+    // empty body to the browser that a redirect would point at (see relay_live).
+    if (preg_match('#^live/#', ltrim($path, '/')) === 1) {
+        relay_live($target);
         exit;
     }
     header('Location: ' . $target, true, 302);
