@@ -343,8 +343,9 @@ export function Player({
             liveBufferLatencyChasing: false,
             lazyLoad: false,
             enableStashBuffer: true,
-            // A bigger initial stash rides out a slow edge instead of letting
-            // the picture run dry between segments.
+            // Keep the stash start small. A large one only begins playback once
+            // that many bytes are queued, and a channel on a slow edge never
+            // fills it — the picture then never appears at all.
             stashInitialSize: 4 * 1024,
           },
         )

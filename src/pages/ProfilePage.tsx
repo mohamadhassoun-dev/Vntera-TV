@@ -8,7 +8,27 @@ import { useSettings } from '../store/settings'
 import { useUI } from '../store/ui'
 import { expiryLabel, formatRuntime, relativeTime } from '../lib/format'
 import { QUALITY_LABELS } from '../lib/config'
+import { canCheckStreams } from '../lib/streamHealth'
+import { useHealth } from '../store/health'
 import type { Settings } from '../types'
+
+/** Plain words for a probe's failure code, so the list reads like a to-do. */
+const FAILURE_REASONS: Record<string, string> = {
+  timeout: 'Timeout',
+  empty: 'No data',
+  network: 'No answer',
+  html: 'Error page',
+  no_episodes: 'No episodes',
+  panel_error: 'Panel error',
+  panel_busy: 'Panel busy',
+  no_stream: 'No stream',
+  stopped: 'Stopped',
+}
+
+function reasonLabel(reason: string): string {
+  if (reason.startsWith('http_')) return reason.slice(5)
+  return FAILURE_REASONS[reason] ?? reason
+}
 
 function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
@@ -110,6 +130,26 @@ export default function ProfilePage() {
   const setSetting = useSettings((s) => s.set)
   const toast = useUI((s) => s.toast)
   const importRef = useRef<HTMLInputElement>(null)
+
+  const healthRunning = useHealth((s) => s.running)
+  const healthScope = useHealth((s) => s.scope)
+  const healthLimit = useHealth((s) => s.limit)
+  const healthTotal = useHealth((s) => s.total)
+  const healthDone = useHealth((s) => s.done)
+  const healthWorking = useHealth((s) => s.working)
+  const healthFailing = useHealth((s) => s.failing)
+  const healthPool = useHealth((s) => s.pool)
+  const healthCurrent = useHealth((s) => s.current)
+  const healthError = useHealth((s) => s.error)
+  const healthLastRun = useHealth((s) => s.lastRun)
+  const healthFailures = useHealth((s) => s.failures)
+  const healthCursor = useHealth((s) => s.cursors[s.scope] ?? 0)
+  const startHealth = useHealth((s) => s.start)
+  const stopHealth = useHealth((s) => s.stop)
+  const clearHealth = useHealth((s) => s.clear)
+  const setHealthScope = useHealth((s) => s.setScope)
+  const setHealthLimit = useHealth((s) => s.setLimit)
+  const hosted = canCheckStreams()
 
   const history = Object.values(libraryProgress).sort((a, b) => b.lastWatched - a.lastWatched).slice(0, 8)
 
@@ -353,6 +393,162 @@ export default function ProfilePage() {
             )}
           </section>
         </div>
+
+        {/* stream health */}
+        <section className="panel mt-4 p-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-widest text-ink-mute">
+              <Icon name="server" size={13} /> Stream health
+            </h2>
+            <div className="flex items-center gap-1.5">
+              {healthRunning ? (
+                <button className="btn btn-ghost !py-1.5 text-[11px]" onClick={stopHealth} data-nav="true">
+                  <Icon name="close" size={13} /> Stop
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary !py-1.5 text-[11px]"
+                  disabled={!hosted}
+                  onClick={() => void startHealth()}
+                  data-nav="true"
+                >
+                  <Icon name="refresh" size={13} /> Run check
+                </button>
+              )}
+              {healthFailures.length ? (
+                <button
+                  className="btn btn-ghost !py-1.5 text-[11px]"
+                  onClick={() => {
+                    const report = {
+                      generatedAt: new Date().toISOString(),
+                      checks: healthFailures.map((f) => ({
+                        kind: f.kind,
+                        id: f.id,
+                        name: f.name,
+                        problem: f.reason,
+                        status: f.status,
+                        checkedAt: new Date(f.at).toISOString(),
+                      })),
+                    }
+                    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }))
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `vntera-stream-health-${new Date().toISOString().slice(0, 10)}.json`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                    toast('Report downloaded', 'success')
+                  }}
+                  data-nav="true"
+                  title="Download the failing titles as JSON"
+                >
+                  <Icon name="download" size={13} /> Report
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={healthScope}
+              onChange={(v) => setHealthScope(v)}
+              options={[
+                { value: 'live', label: 'Live channels' },
+                { value: 'movies', label: 'Movies' },
+                { value: 'series', label: 'Series' },
+                { value: 'all', label: 'Everything' },
+              ]}
+            />
+            <Select
+              value={String(healthLimit)}
+              onChange={(v) => setHealthLimit(Number(v))}
+              options={[
+                { value: '50', label: '50 titles' },
+                { value: '100', label: '100 titles' },
+                { value: '250', label: '250 titles' },
+                { value: '500', label: '500 titles' },
+              ]}
+            />
+            <span className="text-[10px] text-ink-mute">
+              {healthPool
+                ? `${healthPool.toLocaleString()} in this section · next run continues at #${(healthCursor + 1).toLocaleString()}`
+                : 'Plays each title through the same bridge the player uses.'}
+            </span>
+          </div>
+
+          {healthRunning || healthTotal ? (
+            <div className="mt-3">
+              <div className="flex items-center justify-between gap-2 text-[11px] text-ink-mute">
+                <span className="min-w-0 truncate">
+                  {healthRunning
+                    ? healthCurrent
+                      ? `Checking ${healthCurrent}`
+                      : 'Starting…'
+                    : `Checked ${healthDone.toLocaleString()} of ${healthTotal.toLocaleString()}`}
+                </span>
+                <span className="shrink-0 tabular">
+                  {healthTotal ? Math.round((healthDone / healthTotal) * 100) : 0}%
+                </span>
+              </div>
+              <div className="mt-1 h-1 overflow-hidden rounded-full bg-layer-4">
+                <div
+                  className="h-full bg-crimson transition-[width] duration-300"
+                  style={{ width: `${healthTotal ? Math.min(100, (healthDone / healthTotal) * 100) : 0}%` }}
+                />
+              </div>
+              <p className="mt-1.5 flex flex-wrap items-center gap-3 text-[10px] text-ink-mute">
+                <span className="flex items-center gap-1">
+                  <Icon name="checkCircle" size={11} className="text-live" /> {healthWorking.toLocaleString()} working
+                </span>
+                <span className="flex items-center gap-1">
+                  <Icon name="xCircle" size={11} className="text-crimson" /> {healthFailing.toLocaleString()} failing
+                </span>
+                {healthLastRun ? <span>last run {relativeTime(healthLastRun.at)}</span> : null}
+              </p>
+            </div>
+          ) : null}
+
+          {healthError ? <p className="mt-2 text-[11px] text-crimson">{healthError}</p> : null}
+          {!hosted ? (
+            <p className="mt-2 text-[11px] text-ink-mute">
+              The checker needs the hosted site, where the bridge sits in front of the panel.
+            </p>
+          ) : null}
+
+          {healthFailures.length ? (
+            <div className="mt-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-ink-mute">
+                  Not working ({healthFailures.length.toLocaleString()})
+                </p>
+                <button
+                  className="text-[10px] font-bold uppercase tracking-wider text-crimson hover:text-white"
+                  onClick={clearHealth}
+                  data-nav="true"
+                >
+                  Clear
+                </button>
+              </div>
+              <ul className="mt-1 divide-y divide-stroke/60">
+                {healthFailures.slice(0, 8).map((f) => (
+                  <li key={f.key} className="flex items-center gap-2 py-1.5">
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">{f.name}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-ink-mute">
+                      {f.kind} {f.id}
+                    </span>
+                    <span className="shrink-0 rounded-[2px] bg-crimson/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-crimson">
+                      {reasonLabel(f.reason)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {healthFailures.length > 8 ? (
+                <p className="mt-1 text-[10px] text-ink-mute">
+                  +{(healthFailures.length - 8).toLocaleString()} more in the report.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
 
         {/* session */}
         <section className="panel mt-4 p-4">

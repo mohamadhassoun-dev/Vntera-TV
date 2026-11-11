@@ -62,6 +62,74 @@ function respond_json(int $status, array $body): void
     exit;
 }
 
+/**
+ * Cheap "does this stream deliver bytes" check for the in-app stream checker.
+ *
+ * A browser cannot answer that itself: an open-ended MP4 answer is endless, and
+ * every attempt spends one of the account's connection slots for as long as it
+ * runs. This opens the panel stream on the server, keeps the first 32 KB, hangs
+ * up and reports what it saw, so one check is one short request.
+ */
+function probe_stream(string $target): array
+{
+    $started = microtime(true);
+    $status = 0;
+    $type = '';
+    $bytes = 0;
+    $ch = curl_init($target);
+    curl_setopt_array($ch, [
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => 6,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_RANGE => '0-65535',
+        CURLOPT_HTTPHEADER => ['Accept: */*'],
+        CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$status, &$type): int {
+            $trimmed = rtrim($line, "\r\n");
+            if (preg_match('#^HTTP/\S+\s+(\d{3})#', $trimmed, $m)) {
+                $status = (int) $m[1];
+            } elseif (preg_match('#^content-type:\s*(.+)$#i', $trimmed, $m)) {
+                $type = trim($m[1]);
+            }
+            return strlen($line);
+        },
+        CURLOPT_WRITEFUNCTION => static function ($handle, string $data) use (&$bytes): int {
+            $bytes += strlen($data);
+            // Enough to prove the stream delivers; do not download the file.
+            return $bytes >= 32768 ? 0 : strlen($data);
+        },
+    ]);
+    $ok = curl_exec($ch);
+    $errno = curl_errno($ch);
+    curl_close($ch);
+
+    $ms = (int) round((microtime(true) - $started) * 1000);
+    $html = $type !== '' && stripos($type, 'text/html') !== false;
+    $reached = $status >= 200 && $status < 400;
+    $working = $reached && $bytes > 0 && !$html;
+    $reason = '';
+    if (!$working) {
+        if ($errno === 28) {
+            $reason = 'timeout';
+        } elseif (!$reached) {
+            $reason = $status > 0 ? 'http_' . $status : 'network';
+        } elseif ($html) {
+            $reason = 'html';
+        } else {
+            $reason = $bytes === 0 ? 'empty' : 'network';
+        }
+    }
+
+    return [
+        'ok' => $working,
+        'status' => $status,
+        'bytes' => $bytes,
+        'ms' => $ms,
+        'type' => $type,
+        'reason' => $reason,
+    ];
+}
+
 function panel_settings(): array
 {
     $origin = getenv('PANEL_ORIGIN') ?: (isset($_SERVER['PANEL_ORIGIN']) ? $_SERVER['PANEL_ORIGIN'] : '');
@@ -105,6 +173,20 @@ if (!in_array($panel['host'], $panel['allowed'], true)) {
 // Path after /xtream/ plus the original query string.
 $path = isset($_GET['__p']) ? (string) $_GET['__p'] : '';
 unset($_GET['__p'], $_GET['__health']);
+
+// The health checker asks this one to open a stream and report, not to stream it.
+if ($path === '__probe') {
+    $probePath = ltrim((string) ($_GET['path'] ?? ''), '/');
+    if (
+        !preg_match('#^(live|movie|series|hls)/#', $probePath)
+        || strpos($probePath, '..') !== false
+        || strpos($probePath, '://') !== false
+    ) {
+        respond_json(400, ['ok' => false, 'status' => 0, 'bytes' => 0, 'ms' => 0, 'reason' => 'bad_path']);
+    }
+    respond_json(200, probe_stream($panel['origin'] . '/' . $probePath));
+}
+
 $query = http_build_query($_GET);
 $target = $panel['origin'] . '/' . ltrim($path, '/') . ($query !== '' ? '?' . $query : '');
 
