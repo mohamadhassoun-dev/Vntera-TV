@@ -203,11 +203,41 @@ function series_head(string $target): ?array
         }
     }
 
-    $tmp = $headFile . '.part';
+    // A browser opens several range requests at once, so two processes can race
+    // for the same episode. Each one writes its own temporary file and the last
+    // rename wins; a shared `.part` left a half-written head behind and the
+    // episode then fell back to the panel and stalled.
+    $tmp = $headFile . '.part.' . getmypid() . '.' . mt_rand(1000, 9999);
     $out = @fopen($tmp, 'wb');
     if (!$out) {
         return null;
     }
+    // Ask the panel for the file's length first: a range that runs past the end
+    // of a short episode is refused outright, and that refusal used to send the
+    // episode back down the slow relay path.
+    $probe = curl_init($target);
+    $probeTotal = 0;
+    curl_setopt_array($probe, [
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_RANGE => '0-0',
+        CURLOPT_NOBODY => false,
+        CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$probeTotal): int {
+            if (preg_match('#^content-range:\s*bytes\s+\d+-\d+/(\d+)#i', rtrim($line, "\r\n"), $m)) {
+                $probeTotal = (int) $m[1];
+            }
+            return strlen($line);
+        },
+        CURLOPT_WRITEFUNCTION => static function ($handle, string $data): int {
+            return strlen($data);
+        },
+    ]);
+    curl_exec($probe);
+    curl_close($probe);
+    $headWant = $probeTotal > 0 ? min(MEDIA_HEAD_BYTES, $probeTotal) : MEDIA_HEAD_BYTES;
+
     $total = 0;
     $type = 'video/mp4';
     $ch = curl_init($target);
@@ -216,7 +246,7 @@ function series_head(string $target): ?array
         CURLOPT_MAXREDIRS => 3,
         CURLOPT_CONNECTTIMEOUT => 15,
         CURLOPT_TIMEOUT => 180,
-        CURLOPT_RANGE => '0-' . (MEDIA_HEAD_BYTES - 1),
+        CURLOPT_RANGE => '0-' . max(0, $headWant - 1),
         CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$type, &$total): int {
             $trimmed = rtrim($line, "\r\n");
             if (preg_match('#^content-range:\s*bytes\s+\d+-\d+/(\d+)#i', $trimmed, $m)) {
@@ -233,9 +263,21 @@ function series_head(string $target): ?array
     fclose($out);
     if ($ok === false || !is_file($tmp) || (int) @filesize($tmp) < 65536) {
         @unlink($tmp);
+        // Another process may have finished the same head while this one failed.
+        if (is_file($headFile) && (int) @filesize($headFile) >= 65536) {
+            $meta = json_decode((string) @file_get_contents($metaFile), true);
+            if (is_array($meta)) {
+                return [$headFile, $meta];
+            }
+        }
         return null;
     }
-    rename($tmp, $headFile);
+    if (!@rename($tmp, $headFile)) {
+        @unlink($tmp);
+        if (!is_file($headFile)) {
+            return null;
+        }
+    }
     $head = (int) filesize($headFile);
     $meta = ['total' => max($total, $head), 'head' => $head, 'type' => $type];
     @file_put_contents($metaFile, json_encode($meta));
@@ -247,7 +289,26 @@ function serve_series(string $target): void
 {
     $cached = series_head($target);
     if ($cached === null) {
-        header('Location: ' . $target, true, 302);
+        // The head could not be cached just now. Relay the bytes rather than
+        // sending the browser to the panel, which may refuse another range.
+        header('Cache-Control: private, max-age=0');
+        $ch = curl_init($target);
+        curl_setopt_array($ch, [
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 3,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $data): int {
+                echo $data;
+                flush();
+                return strlen($data);
+            },
+        ]);
+        if (!empty($_SERVER['HTTP_RANGE'])) {
+            curl_setopt($ch, CURLOPT_RANGE, str_replace('bytes=', '', (string) $_SERVER['HTTP_RANGE']));
+        }
+        curl_exec($ch);
+        curl_close($ch);
         return;
     }
     [$headFile, $meta] = $cached;
