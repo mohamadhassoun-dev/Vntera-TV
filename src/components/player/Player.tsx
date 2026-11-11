@@ -908,7 +908,10 @@ export function Player({
       reveal()
       return
     }
-    video.currentTime = Math.max(0, Math.min((video.duration || 0) - 1, video.currentTime + delta))
+    // Before the first metadata arrives duration reads 0, and clamping to
+    // `duration - 1` then sent every skip back to the start of the film.
+    const limit = Number.isFinite(video.duration) && video.duration > 0 ? video.duration - 1 : Number.POSITIVE_INFINITY
+    video.currentTime = Math.max(0, Math.min(limit, video.currentTime + delta))
     reveal()
   }, [isLive, liveWindow, reveal])
 
