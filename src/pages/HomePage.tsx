@@ -439,7 +439,7 @@ export default function HomePage() {
                 Shortcut channels
               </p>
               <button
-                className="flex h-6 items-center gap-1 rounded-[3px] border border-stroke px-1.5 text-[10px] font-bold uppercase tracking-wide text-ink-soft transition-colors hover:text-white"
+                className="tap-min -my-2 flex h-8 items-center gap-1 rounded-[3px] border border-stroke px-2 text-[10px] font-bold uppercase tracking-wide text-ink-soft transition-colors hover:text-white"
                 onClick={() => setEditorOpen(true)}
                 data-nav="true"
                 aria-label="Edit shortcut channels"

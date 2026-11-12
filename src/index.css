@@ -337,6 +337,13 @@
     .tab {
       min-height: 40px;
     }
+    /* Opt-in for the small text controls that are not .btn/.icon-btn — the
+       Shortcut "Edit" chip and the footer's "Install help" link were 24px and
+       18px tall, which is a guaranteed mis-tap. */
+    .tap-min {
+      min-width: 44px;
+      min-height: 44px;
+    }
   }
 
   .panel {
@@ -841,12 +848,22 @@ html[data-form-factor='tv'] .app-nav {
 /* Two-line labels ("Live / TV") read as broken text at ten feet, so a label
    never wraps; the row is measured to fit at 960px. */
 html[data-form-factor='tv'] .app-nav a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
   font-size: 0.8rem;
   white-space: nowrap;
 }
 html[data-form-factor='tv'] .app-menu-toggle,
 html[data-form-factor='tv'] .app-profile-icon {
   display: none;
+}
+/* A remote lands on these buttons from three metres away; the hero's Play Now /
+   More Info came out at 38px tall, which is a small box to see and to hit. */
+html[data-form-factor='tv'] .btn,
+html[data-form-factor='tv'] .icon-btn {
+  min-height: 44px;
+  min-width: 44px;
 }
 
 /* ------------------------------------------------------------------

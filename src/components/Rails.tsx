@@ -228,7 +228,7 @@ export function ShortcutChannelRail({ entries, onEdit }: { entries: ResolvedShor
       action={
         onEdit ? (
           <button
-            className="flex h-9 items-center gap-1 rounded-[3px] border border-stroke px-2.5 text-[10px] font-bold uppercase tracking-wide text-ink-soft transition-colors hover:text-white"
+            className="tap-min flex h-9 items-center gap-1 rounded-[3px] border border-stroke px-2.5 text-[10px] font-bold uppercase tracking-wide text-ink-soft transition-colors hover:text-white"
             onClick={onEdit}
             data-nav="true"
             aria-label="Edit shortcut channels"

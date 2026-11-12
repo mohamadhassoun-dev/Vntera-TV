@@ -606,7 +606,7 @@ export function Hero({
                   data-nav="true"
                   aria-label={`Show featured movie ${i + 1}`}
                   aria-current={i === slideIndex ? 'true' : undefined}
-                  className="relative -my-4 flex h-11 items-center px-1"
+                  className="relative -my-4 flex h-11 items-center px-2"
                 >
                   {/* The dot fills over the slide's whole duration instead of
                       just jumping to the next one. The bar stays 6px tall; the

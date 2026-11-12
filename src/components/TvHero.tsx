@@ -149,7 +149,7 @@ export function TvHero({
                     data-nav="true"
                     aria-label={`Show featured movie ${i + 1}`}
                     aria-current={i === slideIndex ? 'true' : undefined}
-                    className="relative -my-4 flex h-11 items-center px-1"
+                    className="relative -my-4 flex h-11 items-center px-2"
                   >
                     <span
                       aria-hidden="true"

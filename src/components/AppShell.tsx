@@ -189,7 +189,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
                   end={item.to === '/'}
                   data-nav="true"
                   className={({ isActive }) =>
-                    `relative py-1 text-[13px] transition-colors ${
+                    `relative -my-1 py-2 text-[13px] transition-colors ${
                       isActive
                         ? 'font-bold text-white after:absolute after:inset-x-0 after:-bottom-0.5 after:h-0.5 after:bg-crimson'
                         : 'text-ink-soft hover:text-white'
@@ -327,7 +327,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
               </Link>
               <Link
                 to="/download"
-                className="px-1 text-[12px] font-bold uppercase tracking-wide text-ink-soft hover:text-white"
+                className="tap-min inline-flex items-center px-2 text-[12px] font-bold uppercase tracking-wide text-ink-soft hover:text-white"
                 data-nav="true"
               >
                 Install help
