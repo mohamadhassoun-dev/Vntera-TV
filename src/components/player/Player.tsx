@@ -45,6 +45,12 @@ interface PlayerProps {
    * panel entry for the same channel was switched to, so no error card is shown.
    */
   onTuneFail?: () => boolean
+  /**
+   * A live channel has run out of options. The page checks whether the panel
+   * still carries it, so a rotated id becomes "unavailable" rather than an
+   * unplayable-stream card.
+   */
+  onFatalError?: () => void
   /** Start silent (the brand sting is playing over a preloading picture). */
   startMuted?: boolean
   /** The sting has finished: reveal the picture and restore sound. */
@@ -118,6 +124,7 @@ export function Player({
   title,
   subtitle,
   poster,
+  onFatalError,
   isLive = false,
   startAt = 0,
   askResume = true,
@@ -444,6 +451,7 @@ export function Player({
           // Every rendition failed: a duplicate panel entry for the same channel
           // may still play, so the page gets a chance to switch to it.
           if (onTuneFail?.()) return
+          if (isLive) onFatalError?.()
           setError(TUNE_ERROR_MESSAGE)
           setBuffering(false)
         })
@@ -580,7 +588,7 @@ export function Player({
       video.load()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, srcAlt, reloadKey, isLive])
+  }, [src, srcAlt, reloadKey, isLive, onFatalError])
 
   // A new source (another title or edition) gets its own recovery budget.
   useEffect(() => {
@@ -710,6 +718,7 @@ export function Player({
         setReloadKey((key) => key + 1)
         return
       }
+      if (isLive) onFatalError?.()
       setBuffering(false)
       setError(fatal ? UNPLAYABLE_MESSAGE : DROP_ERROR_MESSAGE)
     }
@@ -726,6 +735,7 @@ export function Player({
         }
         setPlaying(false)
         setBuffering(false)
+        onFatalError?.()
         setError('This channel went offline. Try another channel.')
         return
       }
@@ -798,7 +808,7 @@ export function Player({
       video.removeEventListener('ended', onEnded)
       video.removeEventListener('volumechange', onVolume)
     }
-  }, [armHide, isLive, onNext, onProgress, settings.autoplayNext, retryFailedTune])
+  }, [armHide, isLive, onFatalError, onNext, onProgress, settings.autoplayNext, retryFailedTune])
 
   // A slow line is not an error: only give up after every rescue step failed.
   // The check watches real progress, so a stream that keeps playing never trips.

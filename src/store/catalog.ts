@@ -28,10 +28,18 @@ interface CatalogStore {
   offline: boolean
   load: (opts?: { force?: boolean; account?: string }) => Promise<void>
   refresh: () => Promise<void>
+  /** Re-pulls only the live line-up; the panel rotates channel ids. */
+  refreshLive: () => Promise<void>
   reset: () => void
 }
 
 // v3: the snapshot is cached in parts (see readCache/writeCache).
+/** How old a live line-up may be before it is re-pulled in the background. */
+const LIVE_STALE_MS = 15 * 60 * 1000
+/** Two refreshes closer together than this collapse into one. */
+const LIVE_REFRESH_THROTTLE_MS = 60 * 1000
+let liveInFlight: Promise<void> | null = null
+let lastLiveRefresh = 0
 const cacheKey = (account: string) => `catalog:v3:${account}`
 const legacyKey = (account: string) => `catalog:v2:${account}`
 
@@ -191,6 +199,9 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
       }
       if (cached && !opts.force) {
         set({ snapshot: cached, status: 'ready', progress: 100, phase: '' })
+        // The channel list goes stale long before the title library does, so it
+        // is re-pulled in the background — after this paint, never before it.
+        if (Date.now() - cached.builtAt > LIVE_STALE_MS) void get().refreshLive()
         // A failed/empty live-stream response must not be treated as a complete
         // fresh catalog: otherwise Live TV and Home shortcuts stay empty for six
         // hours even when the provider has recovered. Retry the catalog instead.
@@ -417,6 +428,46 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
   refresh: async () => {
     const snapshot = get().snapshot
     await get().load({ force: true, account: snapshot?.account })
+  },
+
+  refreshLive: async () => {
+    const snapshot = get().snapshot
+    if (!snapshot) return
+    // A viewer flipping channels must not turn into a request storm against a
+    // panel that allows one stream at a time.
+    if (Date.now() - lastLiveRefresh < LIVE_REFRESH_THROTTLE_MS) return
+    if (liveInFlight) return liveInFlight
+    lastLiveRefresh = Date.now()
+    const run = async () => {
+      try {
+        const live = await getLiveChannels()
+        if (!live.length) return
+        const built = await buildCatalogAsync({
+          account: snapshot.account,
+          live,
+          vod: [],
+          seriesRaw: [],
+          categories: snapshot.categories,
+        })
+        const current = get().snapshot
+        // Replace only the channel list: movies and series are unaffected, and
+        // `builtAt` stays put so the six-hourly full refresh still runs.
+        if (!current || !built.channels.length) return
+        set({
+          snapshot: {
+            ...current,
+            channels: built.channels,
+            counts: { ...current.counts, channels: live.length },
+          },
+        })
+      } catch {
+        // A background refresh never disturbs what is already on screen.
+      }
+    }
+    liveInFlight = run().finally(() => {
+      liveInFlight = null
+    })
+    return liveInFlight
   },
 }))
 

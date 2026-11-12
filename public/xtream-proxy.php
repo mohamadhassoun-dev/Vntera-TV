@@ -102,11 +102,24 @@ function relay_live(string $target): void
         ob_end_clean();
     }
     @set_time_limit(0);
-    header('Content-Type: video/mp2t');
-    header('Cache-Control: no-store');
-    // Hosting proxies buffer by default, which would defeat a live stream.
-    header('X-Accel-Buffering: no');
-    header('Accept-Ranges: none');
+
+    // Headers are held back until bytes that are really video have arrived.
+    // Announcing `200 video/mp2t` up front is what let the panel's 404 page reach
+    // the player as if it were a transport stream, so a channel that no longer
+    // exists surfaced as a decode failure instead of as "unavailable".
+    $bodyStarted = false;
+    $startBody = static function () use (&$bodyStarted): void {
+        if ($bodyStarted) {
+            return;
+        }
+        $bodyStarted = true;
+        http_response_code(200);
+        header('Content-Type: video/mp2t');
+        header('Cache-Control: no-store');
+        // Hosting proxies buffer by default, which would defeat a live stream.
+        header('X-Accel-Buffering: no');
+        header('Accept-Ranges: none');
+    };
 
     $forward = ['Expect:', 'Accept-Encoding: identity'];
     if (!empty($_SERVER['HTTP_RANGE'])) {
@@ -117,8 +130,13 @@ function relay_live(string $target): void
     // next. Retry only while nothing has reached the player yet, so a stream that
     // has started is never restarted mid-picture.
     $sent = 0;
+    $status = 0;
+    $type = '';
+    $badStatus = 0;
     for ($attempt = 1; $attempt <= 4; $attempt++) {
         $before = $sent;
+        $status = 0;
+        $type = '';
         $ch = curl_init($target);
         curl_setopt_array($ch, [
             CURLOPT_HTTPHEADER => $forward,
@@ -128,7 +146,25 @@ function relay_live(string $target): void
             CURLOPT_TIMEOUT => 0,
             CURLOPT_LOW_SPEED_LIMIT => 1024,
             CURLOPT_LOW_SPEED_TIME => MEDIA_PANEL_STALL_SECS,
-            CURLOPT_WRITEFUNCTION => static function ($handle, string $data) use (&$sent): int {
+            CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$status, &$type): int {
+                $trimmed = rtrim($line, "\r\n");
+                if (preg_match('#^HTTP/\S+\s+(\d{3})#', $trimmed, $m)) {
+                    $status = (int) $m[1];
+                } elseif (preg_match('#^content-type:\s*(.+)$#i', $trimmed, $m)) {
+                    $type = strtolower(trim($m[1]));
+                }
+                return strlen($line);
+            },
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $data) use (&$sent, &$status, &$type, $startBody): int {
+                // A page or a JSON error is not a channel. Refuse it here, before
+                // any header has promised the browser a video.
+                $isErrorPage = ($status > 0 && ($status < 200 || $status >= 300))
+                    || strpos($type, 'html') !== false
+                    || strpos($type, 'json') !== false;
+                if ($isErrorPage) {
+                    return 0;
+                }
+                $startBody();
                 echo $data;
                 flush();
                 $sent += strlen($data);
@@ -136,12 +172,30 @@ function relay_live(string $target): void
             },
         ]);
         curl_exec($ch);
+        $final = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
+        if ($status >= 400 || $final >= 400) {
+            $badStatus = max($badStatus, $status ?: $final);
+        }
         if ($sent > 0 || $before > 0 || connection_aborted()) {
+            break;
+        }
+        if ($badStatus >= 400) {
             break;
         }
         usleep(500000);
     }
+
+    if ($sent > 0) {
+        return;
+    }
+    // Nothing playable arrived. Say so instead of leaving a `200` with no picture:
+    // the client reads this and shows its "channel unavailable" state.
+    $gone = in_array($badStatus, [404, 410], true);
+    respond_json($gone ? 404 : 502, [
+        'error' => $gone ? 'channel_unavailable' : 'channel_unreachable',
+        'status' => $badStatus,
+    ]);
 }
 
 /**

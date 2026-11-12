@@ -8,6 +8,7 @@ import { useLibrary } from '../store/library'
 import { useEpg } from '../store/epg'
 import { useSettings } from '../store/settings'
 import { streamUrl } from '../lib/xtream'
+import { mediaPath, probeMedia } from '../lib/streamHealth'
 import { useOffline } from '../store/offline'
 import { detectNetworkSpeed, lowerEdition, pickEdition } from '../lib/editions'
 import { uniqueEditions } from '../lib/normalize'
@@ -165,6 +166,48 @@ export default function WatchPage() {
   const altSrc = useMemo(() => {
     if (kind !== 'live' || !streamId) return undefined
     return streamUrl('live', streamId, { liveFormat: 'm3u8' })
+  }, [kind, streamId])
+
+  // The panel rotates live ids, so a channel in the cached catalogue can be gone
+  // from the panel entirely. When the player runs out of options one short probe
+  // says which it is: gone (a real "unavailable") or merely broken (retry).
+  const [channelState, setChannelState] = useState<'idle' | 'checking' | 'gone'>('idle')
+  /** Which source has already been looked up, so a broken channel settles. */
+  const checkedSrc = useRef('')
+  useEffect(() => {
+    setChannelState('idle')
+    checkedSrc.current = ''
+  }, [src, streamId])
+
+  const checkChannel = useCallback(async () => {
+    const path = kind === 'live' ? mediaPath('live', Number(streamId)) : ''
+    if (!path) return
+    // One lookup per source: a channel that keeps failing must end on the card
+    // with its Retry button, not bounce between "checking" and a fresh tune.
+    if (checkedSrc.current === src) return
+    checkedSrc.current = src
+    setChannelState('checking')
+    const controller = new AbortController()
+    const refused = (status: number, reason: string) =>
+      status === 404 || status === 410 || reason === 'http_404' || reason === 'http_410'
+    const first = await probeMedia(path, controller.signal)
+    let gone = !first.ok && refused(first.status, first.reason)
+    if (!gone && !first.ok && first.status === 403) {
+      // A 403 is also what this provider says when its single stream slot is
+      // busy, so one refusal is not proof. A rotated id refuses twice.
+      await new Promise((resolve) => setTimeout(resolve, 1_200))
+      const second = await probeMedia(path, controller.signal)
+      gone = !second.ok && (refused(second.status, second.reason) || second.status === 403)
+    }
+    if (!gone) {
+      // Still listed upstream: let the player try again from a clean state.
+      setChannelState('idle')
+      return
+    }
+    setChannelState('gone')
+    // The list the viewer is browsing is stale: re-pull it so a channel that
+    // still exists is offered again without reloading the app.
+    void useCatalog.getState().refreshLive()
   }, [kind, streamId])
 
   // A finished download for exactly this edition plays from the device; the
@@ -348,6 +391,51 @@ export default function WatchPage() {
     )
   }
 
+  if (kind === 'live' && channelState !== 'idle') {
+    const gone = channelState === 'gone'
+    return (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-canvas px-4">
+        <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
+          {gone ? null : (
+            <span className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-crimson" />
+          )}
+          <h2 className="text-lg font-bold text-white">
+            {gone ? 'Channel unavailable' : 'Checking this channel…'}
+          </h2>
+          <p className="text-sm text-ink-mute">
+            {gone
+              ? 'This channel is no longer in the provider line-up. Pick another one — the list has been refreshed.'
+              : 'The provider is deciding whether this channel is still on air.'}
+          </p>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-nav="true"
+              onClick={() => navigate('/live')}
+            >
+              Browse live TV
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              data-nav="true"
+              onClick={() => {
+                checkedSrc.current = ''
+                setChannelState('idle')
+              }}
+            >
+              Try again
+            </button>
+            <button type="button" className="btn btn-secondary" data-nav="true" onClick={exit}>
+              Back
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="fixed inset-0 z-[60] bg-black">
       {/* The film buffers underneath the brand sting, muted, so the sting never
@@ -377,6 +465,7 @@ export default function WatchPage() {
         liveProgramme={liveNow ? { title: liveNow.title, start: liveNow.start, end: liveNow.end } : undefined}
         onStall={kind === 'live' || localSrc ? undefined : dropToOneLighterEdition}
         onTuneFail={kind === 'live' && !localSrc ? tryAnotherLiveEntry : undefined}
+        onFatalError={kind === 'live' && !localSrc ? () => void checkChannel() : undefined}
         muted={!introDone}
         onPlayingChange={handlePlayState}
       />
