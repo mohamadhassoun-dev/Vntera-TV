@@ -147,6 +147,10 @@ export function Player({
   const skipFixes = useRef(0)
   /** Furthest real position of this source, kept across a rescue's re-attach. */
   const furthest = useRef(0)
+  /** Re-asks for a film or episode that has not produced a first frame yet. */
+  const firstFrameRetries = useRef(0)
+  /** Last duration the element reported; it reads NaN once a source is reset. */
+  const durationAt = useRef(0)
   /** Last position pushed into React state, so playback does not re-render constantly. */
   const lastPushedTime = useRef(0)
   /** Long-press repeat on the skip buttons, and whether the press already stepped. */
@@ -555,6 +559,7 @@ export function Player({
     truncations.current = 0
     skipFixes.current = 0
     furthest.current = 0
+    firstFrameRetries.current = 0
     // clockAt is deliberately kept: a rescue re-attaches the same title, and the
     // position reached before that reload is exactly where it has to resume. The
     // next timeupdate replaces it as soon as the new source plays.
@@ -577,8 +582,17 @@ export function Player({
     const video = videoRef.current
     if (!video) return
     const onTime = () => {
-      clockAt.current = video.currentTime
-      if (video.currentTime > furthest.current) furthest.current = video.currentTime
+      const at = video.currentTime
+      clockAt.current = at
+      // A truncated file pins currentTime to the duration and fires timeupdate on
+      // the way, so only a normal step counts as progress. Without this, the jump
+      // itself taught the end-of-file check that the viewer had watched it all.
+      const step = at - furthest.current
+      // Only a normal step counts, and the first sample only when playback has
+      // really begun: a file that jumps to its end before the first frame must
+      // not teach this that the viewer watched it all.
+      const seeded = furthest.current === 0 ? at < 30 : step > 0 && step < 10
+      if (seeded) furthest.current = at
       // Labels show whole seconds, so half-second renders are wasted work.
       const next = video.currentTime
       if (Math.abs(next - lastPushedTime.current) < 0.5) return
@@ -586,6 +600,7 @@ export function Player({
       setCurrent(next)
     }
     const onDur = () => {
+      if (Number.isFinite(video.duration) && video.duration > 0) durationAt.current = video.duration
       setDuration(Number.isFinite(video.duration) ? video.duration : 0)
       syncLiveWindow()
     }
@@ -685,23 +700,35 @@ export function Player({
       // buffer cannot tell us. The position actually reached can: nobody ends a
       // two-hour episode after forty seconds. Resume from there instead of
       // calling the episode over and autoplaying the next one.
-      const duration = Number.isFinite(video.duration) ? video.duration : 0
+      // A reset element reports NaN for its duration, which used to skip this
+      // check entirely and let a truncation look like a finished episode.
+      const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : durationAt.current
       // After a rescue the new element can end before its first timeupdate, so the
       // best known position is whichever of these is further along.
-      const watched = Math.max(furthest.current, clockAt.current, resumeAfterRecovery.current)
-      if (duration > 0 && watched > 0 && watched < duration - 60 && truncations.current < 3) {
+      const watched = Math.max(furthest.current, resumeAfterRecovery.current)
+      if (duration > 0 && watched > 0 && watched < duration - 60 && truncations.current < 12) {
         truncations.current += 1
-        // Each rescue lands a little further on, so a damaged stretch that keeps
-        // reporting the file as finished is stepped over instead of replayed.
-        resumeAfterRecovery.current = Math.max(1, watched + 15 * truncations.current)
+        // Resume where the picture actually stopped. Only a repeated end at the
+        // same place (a damaged stretch, not a slow panel) steps forward, so a
+        // slow panel costs a short re-buffer instead of a lost few seconds.
+        resumeAfterRecovery.current = Math.max(
+          1,
+          watched + (truncations.current > 1 ? 5 * (truncations.current - 1) : 0),
+        )
         setNotice('Reconnecting to this video…')
-        setReloadKey((key) => key + 1)
+        // Wait a moment before asking again: a panel that is rate-limiting this
+        // account recovers from a pause, not from an immediate second request.
+        const wait = Math.min(8000, 1_500 * truncations.current)
+        window.setTimeout(() => setReloadKey((key) => key + 1), wait)
         return
       }
       setPlaying(false)
       setEnded(true)
       setShowControls(true)
-      if (settings.autoplayNext && onNext) onNext()
+      // Autoplay only when the viewer really reached the end. A file that ended
+      // early must never carry them into the next episode on its own.
+      const reachedEnd = duration > 0 && watched >= duration - 60
+      if (settings.autoplayNext && onNext && reachedEnd) onNext()
     }
     const onVolume = () => {
       setVolume(video.volume)
@@ -783,6 +810,15 @@ export function Player({
         }
         // Last resort for a live channel: another panel entry for it.
         if (isLive && onTuneFail?.()) return
+        // A film or episode with no frame yet is usually queued behind the panel's
+        // single stream slot, not broken. Ask again before handing the viewer
+        // something they have to act on.
+        if (!isLive && !hasPlayed.current && firstFrameRetries.current < 2) {
+          firstFrameRetries.current += 1
+          setNotice('Still preparing this video…')
+          setReloadKey((key) => key + 1)
+          return
+        }
         setBuffering(false)
         setError((current) => current ?? STREAM_STALL_MESSAGE)
         return

@@ -779,6 +779,8 @@ function serve_series(string $target, bool $windowed = true): void
     for ($attempt = 0; $attempt < 6 && $pos <= $end && !connection_aborted(); $attempt += 1) {
         $got = 0;
         $rangeStart = -1;
+        $skip = 0;
+        $limit = $end - $pos + 1;
         $ch = curl_init($target);
         curl_setopt_array($ch, [
             CURLOPT_FOLLOWLOCATION => true,
@@ -794,17 +796,31 @@ function serve_series(string $target, bool $windowed = true): void
                 }
                 return strlen($line);
             },
-            CURLOPT_WRITEFUNCTION => static function ($handle, string $data) use (&$got, &$rangeStart, $pos): int {
-                $size = strlen($data);
-                // A panel that ignores the range answers from byte zero; those
-                // bytes belong further up the file and must not be served here.
-                if ($rangeStart >= 0 && $rangeStart !== $pos && $got === 0) {
-                    return 0;
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $data) use (&$got, &$rangeStart, &$skip, $pos, $limit): int {
+                $orig = strlen($data);
+                // A panel that ignores the range answers from byte zero. Those
+                // leading bytes belong earlier in the file, so they are dropped
+                // instead of ending the response: aborting here left the body
+                // shorter than its Content-Length, which the player reads as a
+                // finished file.
+                if ($rangeStart >= 0 && $got === 0 && $rangeStart < $pos) {
+                    $skip = $pos - $rangeStart;
                 }
-                echo $data;
-                flush();
-                $got += $size;
-                return $size;
+                if ($skip > 0) {
+                    $cut = min($skip, $orig);
+                    $data = (string) substr($data, $cut);
+                    $skip -= $cut;
+                }
+                if ($data !== '') {
+                    // Never send more than this attempt promised.
+                    if ($got + strlen($data) > $limit) {
+                        $data = substr($data, 0, $limit - $got);
+                    }
+                    echo $data;
+                    flush();
+                    $got += strlen($data);
+                }
+                return $orig;
             },
         ]);
         curl_exec($ch);
