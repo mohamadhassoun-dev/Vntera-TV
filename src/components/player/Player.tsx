@@ -222,6 +222,20 @@ export function Player({
   const [audioOnly, setAudioOnly] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [resumeOpen, setResumeOpen] = useState(askResume && startAt > 30)
+  // While the resume prompt is open nothing should be playing behind it, or the
+  // viewer hears a title they have not chosen to start (and the choice they make
+  // then applies to a film that has already moved on).
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !resumeOpen) return
+    const hold = () => {
+      if (!video.paused) video.pause()
+    }
+    video.addEventListener('play', hold)
+    hold()
+    return () => video.removeEventListener('play', hold)
+  }, [resumeOpen])
+
   // A saved position at the very end is not somewhere to resume: it is what a
   // file that stopped early leaves behind, and asking the viewer how to continue
   // from it blocks playback entirely. Once the real duration is known, such a
