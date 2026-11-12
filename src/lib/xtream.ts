@@ -93,6 +93,12 @@ const MAX_PANEL_REQUESTS = 3
  * 429s whenever a finished category let the next one start immediately. Requests
  * are spaced out instead of burst, which costs a few seconds across a whole
  * library and stops the provider refusing them.
+ *
+ * The gap is deliberately fixed. Widening it when the panel refuses was tried and
+ * measured slower: at four workers the ceiling of 1.6s pulled the whole library
+ * in well over 165s while the fixed pace finished it in about 85s, for only a
+ * third fewer refusals — and a refused request is retried anyway, so the refusal
+ * costs a round trip, not a thread of the library.
  */
 const PANEL_START_GAP_MS = 350
 let openPanelRequests = 0
