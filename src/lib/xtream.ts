@@ -66,6 +66,8 @@ interface RequestOptions {
   transformResponse?: (data: string) => string
   /** The panel answers with a top-level array: read it entry by entry. */
   streamArray?: boolean
+  /** Called with each batch of a streamed array response as it is parsed. */
+  onArrayBatch?: (items: unknown[]) => void
 }
 
 const DEFAULT_TIMEOUT = 30_000
@@ -103,7 +105,10 @@ interface PanelResponse<T = any> {
  * Anything that does not start with an array (an error object, for instance) is
  * kept whole and parsed normally.
  */
-async function parseArrayBody<T>(response: Response): Promise<T[] | null> {
+async function parseArrayBody<T>(
+  response: Response,
+  onBatch?: (items: T[]) => void,
+): Promise<T[] | null> {
   const reader = response.body?.getReader()
   if (!reader) return null
   const decoder = new TextDecoder()
@@ -117,8 +122,23 @@ async function parseArrayBody<T>(response: Response): Promise<T[] | null> {
   let entryStart = -1
   let started = false
   let sinceYield = 0
+  let pending: T[] = []
 
   const yieldToBrowser = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+  // The panel's movie and series lists are three megabytes each and take about
+  // half a minute to arrive. Handing the first few hundred entries over as they
+  // are parsed is what lets search and the grids fill while the rest is on the
+  // wire, instead of after the last byte.
+  const flushBatch = () => {
+    if (!onBatch || !pending.length) return
+    const items = pending
+    pending = []
+    try {
+      onBatch(items)
+    } catch (error) {
+      console.warn('[panel] batch consumer failed', error)
+    }
+  }
 
   try {
     for (;;) {
@@ -157,7 +177,15 @@ async function parseArrayBody<T>(response: Response): Promise<T[] | null> {
             const slice = buffer.slice(entryStart, pos + 1)
             entryStart = -1
             try {
-              out.push(JSON.parse(slice) as T)
+              const entry = JSON.parse(slice) as T
+              out.push(entry)
+              if (onBatch) {
+                pending.push(entry)
+                // Small batches: the first titles reach the grid and the search
+                // index after ~60 KB of a list that can run to three megabytes,
+                // instead of after the first six hundred entries.
+                if (pending.length >= 150) flushBatch()
+              }
             } catch {
               /* one malformed entry must not lose the rest */
             }
@@ -179,6 +207,7 @@ async function parseArrayBody<T>(response: Response): Promise<T[] | null> {
       }
     }
   } finally {
+    flushBatch()
     reader.cancel().catch(() => undefined)
   }
 
@@ -235,7 +264,10 @@ async function request<T = any>(
     let streamed: unknown[] | null = null
     try {
       if (options.streamArray && response.ok) {
-        streamed = await parseArrayBody(response.clone())
+        streamed = await parseArrayBody(
+          response.clone(),
+          options.onArrayBatch as ((items: unknown[]) => void) | undefined,
+        )
         if (!streamed?.length) {
           // A streamed read can come back empty when the edge buffers or breaks
           // the body up oddly, and an empty line-up is a very different thing
@@ -403,20 +435,31 @@ export async function getLiveChannels(categoryId?: string): Promise<RawLiveStrea
   return asArray<RawLiveStream>(res.data)
 }
 
-export async function getMovies(categoryId?: string): Promise<RawVodStream[]> {
+export async function getMovies(
+  categoryId?: string,
+  onBatch?: (items: RawVodStream[]) => void,
+): Promise<RawVodStream[]> {
   const res = await api.get('/player_api.php', {
     params: { action: 'get_vod_streams', ...(categoryId ? { category_id: categoryId } : {}) },
-    timeout: 90_000,
+    // The full list is ~20 MB of JSON (3.4 MB compressed) and can take most of a
+    // minute on a slow link. Entries arrive and are indexed the whole time, so
+    // the timeout only has to catch a dead connection, not a slow one.
+    timeout: 240_000,
     streamArray: true,
+    onArrayBatch: onBatch as ((items: unknown[]) => void) | undefined,
   })
   return asArray<RawVodStream>(res.data)
 }
 
-export async function getSeries(categoryId?: string): Promise<RawSeries[]> {
+export async function getSeries(
+  categoryId?: string,
+  onBatch?: (items: RawSeries[]) => void,
+): Promise<RawSeries[]> {
   const res = await api.get('/player_api.php', {
     params: { action: 'get_series', ...(categoryId ? { category_id: categoryId } : {}) },
-    timeout: 90_000,
+    timeout: 240_000,
     streamArray: true,
+    onArrayBatch: onBatch as ((items: unknown[]) => void) | undefined,
   })
   return asArray<RawSeries>(res.data)
 }

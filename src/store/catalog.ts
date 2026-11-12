@@ -13,7 +13,7 @@ import { buildCatalogAsync } from '../lib/normalize'
 import { warmBandTitle } from '../lib/genreBands'
 import { warmTitleDerivations } from '../lib/homeRotation'
 import { warmCollectionTitle } from '../lib/collections'
-import { warmTrending } from '../lib/search'
+import { warmSearchIndex, warmTrending } from '../lib/search'
 import type { CatalogSnapshot, RawCategory, RawLiveStream, RawSeries, RawVodStream, Title } from '../types'
 import { classifyEntries, parseM3U } from '../lib/m3u'
 
@@ -76,7 +76,16 @@ interface CacheMeta {
   counts: CatalogSnapshot['counts']
   movieParts: number
   seriesParts: number
+  /** False for a snapshot written while the library was still arriving. */
+  complete?: boolean
 }
+
+/**
+ * Caches written mid-load. They are good enough to paint a second visit
+ * instantly, but they must not be treated as a finished library — otherwise a
+ * few hundred titles would be "fresh" for six hours and never refresh.
+ */
+const partialCaches = new WeakSet<CatalogSnapshot>()
 
 /**
  * Hands a frame back between chunks of cache work so a visible page stays
@@ -126,7 +135,7 @@ async function readCache(account: string): Promise<CatalogSnapshot | null> {
       title.hasArtwork = Boolean(title.backdrop)
     }
   }
-  return {
+  const snapshot: CatalogSnapshot = {
     account: meta.account,
     builtAt: meta.builtAt,
     demo: meta.demo,
@@ -136,6 +145,8 @@ async function readCache(account: string): Promise<CatalogSnapshot | null> {
     movies,
     series,
   }
+  if (meta.complete === false) partialCaches.add(snapshot)
+  return snapshot
 }
 
 /**
@@ -159,10 +170,14 @@ async function warmSnapshot(snapshot: CatalogSnapshot): Promise<void> {
   }
   // Search's trending list is a pass over the whole library too, and it is
   // opened from a single tap in the header.
+  // The index behind every keystroke in Search. Built in slices here, while the
+  // launch intro is on screen, so the first search on a cached library filters
+  // instead of indexing 57k titles inside the tap.
+  await warmSearchIndex(snapshot)
   await warmTrending(snapshot)
 }
 
-async function writeCache(account: string, snapshot: CatalogSnapshot): Promise<void> {
+async function writeCache(account: string, snapshot: CatalogSnapshot, complete = false): Promise<void> {
   const movieParts = chunk(snapshot.movies, PART_SIZE)
   const seriesParts = chunk(snapshot.series, PART_SIZE)
   const meta: CacheMeta = {
@@ -173,6 +188,7 @@ async function writeCache(account: string, snapshot: CatalogSnapshot): Promise<v
     counts: snapshot.counts,
     movieParts: movieParts.length,
     seriesParts: seriesParts.length,
+    complete,
   }
   await idbSet(`${cacheKey(account)}:meta`, meta)
   await idbSet(`${cacheKey(account)}:channels`, snapshot.channels)
@@ -187,6 +203,21 @@ async function writeCache(account: string, snapshot: CatalogSnapshot): Promise<v
 }
 
 let inFlight: Promise<void> | null = null
+
+/** One cache write at a time, at most every fifteen seconds while loading. */
+let persistTimer = 0
+let persistAt = 0
+function schedulePersist(account: string): void {
+  if (persistTimer) return
+  const wait = Math.max(0, 15_000 - (Date.now() - persistAt))
+  persistTimer = window.setTimeout(() => {
+    persistTimer = 0
+    persistAt = Date.now()
+    const current = useCatalog.getState().snapshot
+    if (!current) return
+    void writeCache(account, current).catch((error) => console.warn('[catalog] cache write failed', error))
+  }, wait)
+}
 
 export const useCatalog = create<CatalogStore>((set, get) => ({
   snapshot: null,
@@ -223,7 +254,9 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         // A failed/empty live-stream response must not be treated as a complete
         // fresh catalog: otherwise Live TV and Home shortcuts stay empty for six
         // hours even when the provider has recovered. Retry the catalog instead.
-        if (hasFreshLiveCatalog(cached)) return
+        // A cache written mid-load paints the library but is not the finished
+        // article, so the rest keeps downloading instead of being skipped.
+        if (hasFreshLiveCatalog(cached) && !partialCaches.has(cached)) return
       } else if (!opts.force) {
         set({ status: 'loading', phase: 'Connecting to Vntera', progress: 4 })
       } else {
@@ -249,10 +282,14 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
 
         // A 57k-title library must not block Live TV behind one giant response:
         // publish each section as soon as it is normalized.
+        // A snapshot published mid-load must keep one birthday: consumers cache
+        // their derived work per builtAt, and a fresh stamp on every incremental
+        // publish would throw the search index away and rebuild it each time.
+        const builtStamp = Date.now()
         const publish = (progress: number) => {
           const snapshot: CatalogSnapshot = {
             account,
-            builtAt: Date.now(),
+            builtAt: builtStamp,
             demo: false,
             channels,
             movies,
@@ -263,7 +300,94 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
           // Sections land out of order (live first, starter movies next), so a
           // late, smaller section must never walk the progress bar backwards.
           set({ snapshot, status: 'ready', progress: Math.max(progress, get().progress), error: null, offline: false })
+          // Persist while the library is still arriving, so the next visit opens
+          // with thousands of searchable titles instead of an empty shelf. A
+          // full pull can take a minute; waiting for it meant most visits never
+          // wrote a cache at all.
+          if (movies.length + series.length >= 3_000) schedulePersist(account)
           return snapshot
+        }
+
+        // The movie and series pulls are three megabytes each and take about
+        // half a minute. Their entries are indexed in batches as they arrive, so
+        // search answers a query against the first few thousand titles in about
+        // a second and keeps filling while the rest is still on the wire.
+        let movieQueue: RawVodStream[] = []
+        let seriesQueue: RawSeries[] = []
+        let movieTimer = 0
+        let seriesTimer = 0
+        const seenMovieIds = new Set<number>()
+        const seenSeriesIds = new Set<number>()
+        const knownMovieKeys = new Set<string>()
+        const knownSeriesKeys = new Set<string>()
+        const seedKnownMovies = () => {
+          if (knownMovieKeys.size || !movies.length) return
+          for (const title of movies) {
+            knownMovieKeys.add(title.key)
+            seenMovieIds.add(title.id)
+          }
+        }
+        const seedKnownSeries = () => {
+          if (knownSeriesKeys.size || !series.length) return
+          for (const title of series) {
+            knownSeriesKeys.add(title.key)
+            seenSeriesIds.add(title.id)
+          }
+        }
+        const drainMovies = () => {
+          movieTimer = 0
+          const batch = movieQueue
+          movieQueue = []
+          // The finished pull wins: never add a slice to a complete list.
+          if (!batch.length || vod.length) return
+          void buildCatalogAsync({ account, live: [], vod: batch, seriesRaw: [], categories: catArg })
+            .then((built) => {
+              if (vod.length) return
+              for (const title of built.movies) {
+                if (knownMovieKeys.has(title.key)) continue
+                knownMovieKeys.add(title.key)
+                movies.push(title)
+              }
+              publish(Math.min(69, 46 + Math.floor(movies.length / 2000)))
+            })
+            .catch((error) => console.warn('[catalog] movie batch failed', error))
+        }
+        const drainSeries = () => {
+          seriesTimer = 0
+          const batch = seriesQueue
+          seriesQueue = []
+          if (!batch.length || seriesRaw.length) return
+          void buildCatalogAsync({ account, live: [], vod: [], seriesRaw: batch, categories: catArg })
+            .then((built) => {
+              if (seriesRaw.length) return
+              for (const title of built.series) {
+                if (knownSeriesKeys.has(title.key)) continue
+                knownSeriesKeys.add(title.key)
+                series.push(title)
+              }
+              publish(Math.min(87, 49 + Math.floor(series.length / 600)))
+            })
+            .catch((error) => console.warn('[catalog] series batch failed', error))
+        }
+        const appendMovieBatch = (batch: RawVodStream[]) => {
+          seedKnownMovies()
+          for (const item of batch) {
+            const id = Number(item.stream_id)
+            if (!id || seenMovieIds.has(id)) continue
+            seenMovieIds.add(id)
+            movieQueue.push(item)
+          }
+          if (!movieTimer) movieTimer = window.setTimeout(drainMovies, 300)
+        }
+        const appendSeriesBatch = (batch: RawSeries[]) => {
+          seedKnownSeries()
+          for (const item of batch) {
+            const id = Number(item.series_id)
+            if (!id || seenSeriesIds.has(id)) continue
+            seenSeriesIds.add(id)
+            seriesQueue.push(item)
+          }
+          if (!seriesTimer) seriesTimer = window.setTimeout(drainSeries, 300)
         }
 
         const liveTask = getLiveChannels().then(async (r) => {
@@ -300,8 +424,9 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
                 seriesRaw: raw,
                 categories: catArg,
               }).then((built) => {
-                // The full pull may have landed while this slice was indexing.
-                if (seriesRaw.length) return
+                // The full pull may have landed while this slice was indexing,
+                // and streamed batches may already have put more on screen.
+                if (seriesRaw.length || series.length > raw.length) return
                 series = built.series
                 publish(48)
               })
@@ -322,7 +447,9 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
               const raw = [...seen.values()]
               void buildCatalogAsync({ account, live: [], vod: raw, seriesRaw: [], categories: catArg }).then(
                 (built) => {
-                  if (vod.length) return
+                  // Never shrink the grid: by now the streamed batches may have
+                  // put far more titles up than this starter slice holds.
+                  if (vod.length || movies.length > raw.length) return
                   vod = raw
                   movies = built.movies
                   publish(45)
@@ -351,24 +478,113 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         // The big pulls wait for the starter (or six seconds): they otherwise
         // take every connection and the first titles arrive as slowly as the
         // whole library. The cap keeps a slow category from holding them back.
+        // The big pulls stream now, so they only need the starter's head start
+        // long enough to get its first category in flight — waiting the old six
+        // seconds put the first searchable titles that much later, which is what
+        // a cold Search waited on.
         const starterSettled = Promise.race([
           starterTask,
-          new Promise<void>((resolve) => window.setTimeout(resolve, 6000)),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 1_500)),
         ])
-        const vodTask = starterSettled.then(() => getMovies()).then(async (r) => {
-          vod = r
-          movies = (await buildCatalogAsync({ account, live: [], vod: r, seriesRaw: [], categories: catArg }))
-            .movies
-          publish(70)
-          set({ phase: `Movies ready · ${r.length.toLocaleString()} titles` })
-        })
-        const seriesTask = starterSettled.then(() => getSeries()).then(async (r) => {
-          seriesRaw = r
-          series = (await buildCatalogAsync({ account, live: [], vod: [], seriesRaw: r, categories: catArg }))
-            .series
-          publish(88)
-          set({ phase: `Series ready · ${r.length.toLocaleString()} titles` })
-        })
+        /**
+         * Pulls the whole library one category at a time, four at once.
+         *
+         * The panel's single-call list is ~20 MB of JSON (3.4 MB compressed) and
+         * on a slow or flaky link it either crawls for a minute or dies with an
+         * HTTP/2 reset that loses everything. Per-category calls are 4-160 KB, so
+         * the first ones land in about a second, the grid and the search index
+         * grow from the first batch, and one dead category costs only itself.
+         */
+        const pullByCategory = async <T>(
+          ids: string[],
+          fetchOne: (id: string, onBatch: (items: T[]) => void) => Promise<T[]>,
+          append: (items: T[]) => void,
+          label: string,
+          idOf: (item: T) => number,
+        ): Promise<T[]> => {
+          const queue = [...ids]
+          const out = new Map<number, T>()
+          let done = 0
+          const worker = async () => {
+            for (;;) {
+              const id = queue.shift()
+              if (!id) return
+              let streamed = 0
+              const take = (items: T[]) => {
+                if (!items.length) return
+                for (const item of items) {
+                  const key = idOf(item)
+                  if (key) out.set(key, item)
+                }
+                streamed += items.length
+                append(items)
+              }
+              try {
+                const list = await fetchOne(id, take)
+                // A body that never streamed arrives whole here instead.
+                if (!streamed && list.length) take(list)
+              } catch (error) {
+                console.warn(`[catalog] ${label} category failed`, id, error)
+              }
+              done += 1
+              if (done % 3 === 0 || done === ids.length) {
+                set({ phase: `Loading ${label} · ${done}/${ids.length} categories` })
+              }
+            }
+          }
+          await Promise.all([worker(), worker(), worker(), worker()])
+          return [...out.values()]
+        }
+
+        const vodTask = starterSettled
+          .then(async () => {
+            const ids = catArg.vod.map((c) => String(c.category_id))
+            const r = ids.length
+              ? await pullByCategory<RawVodStream>(
+                  ids,
+                  (id, onBatch) => getMovies(id, onBatch),
+                  appendMovieBatch,
+                  'movies',
+                  (item) => Number(item.stream_id),
+                )
+              : await getMovies(undefined, appendMovieBatch)
+            return r
+          })
+          .then(async (r) => {
+            // A pull that died on the wire must not erase the thousands of titles
+            // its streamed batches already put on screen; the list simply stays
+            // partial and the next launch tries again (the cache skips writes for
+            // a snapshot that never saw a complete pull).
+            if (!r.length) return
+            vod = r
+            const built = await buildCatalogAsync({ account, live: [], vod: r, seriesRaw: [], categories: catArg })
+            if (!built.movies.length) return
+            movies = built.movies
+            publish(70)
+            set({ phase: `Movies ready · ${r.length.toLocaleString()} titles` })
+          })
+        const seriesTask = starterSettled
+          .then(async () => {
+            const ids = catArg.series.map((c) => String(c.category_id))
+            return ids.length
+              ? await pullByCategory<RawSeries>(
+                  ids,
+                  (id, onBatch) => getSeries(id, onBatch),
+                  appendSeriesBatch,
+                  'series',
+                  (item) => Number(item.series_id),
+                )
+              : await getSeries(undefined, appendSeriesBatch)
+          })
+          .then(async (r) => {
+            if (!r.length) return
+            seriesRaw = r
+            const built = await buildCatalogAsync({ account, live: [], vod: [], seriesRaw: r, categories: catArg })
+            if (!built.series.length) return
+            series = built.series
+            publish(88)
+            set({ phase: `Series ready · ${r.length.toLocaleString()} titles` })
+          })
 
         const results = await Promise.allSettled([liveTask, vodTask, seriesTask])
         const failed = results.filter((r) => r.status === 'rejected').length
@@ -418,8 +634,14 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         // a cold start feel heavy. An idle callback keeps the serialization out
         // of the first paint as well.
         const finalSnapshot = get().snapshot
-        if (finalSnapshot) {
-          const persist = () => void writeCache(account, finalSnapshot)
+        // A snapshot that only ever saw the starter categories is not the
+        // library. Writing it would pin Movies and Search to those few hundred
+        // titles for six hours, so it is kept on screen but not persisted and
+        // the next launch tries the full pull again.
+        const completeEnough =
+          vod.length > 0 || seriesRaw.length > 0 || movies.length + series.length > 5_000
+        if (finalSnapshot && completeEnough) {
+          const persist = () => void writeCache(account, finalSnapshot, completeEnough)
           const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback
           if (typeof idle === 'function') idle(persist)
           else window.setTimeout(persist, 1200)

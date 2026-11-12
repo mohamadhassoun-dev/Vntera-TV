@@ -16,22 +16,86 @@ interface IndexEntry {
   tokens: string[]
 }
 
-let indexCache: { key: string; entries: IndexEntry[] } | null = null
+interface IndexState {
+  movies: Title[]
+  series: Title[]
+  channels: Title[]
+  counts: [number, number, number]
+  entries: IndexEntry[]
+}
 
+let indexState: IndexState | null = null
+
+function indexEntry(title: Title): IndexEntry {
+  const haystack = `${title.name} ${title.genres.join(' ')} ${title.categoryName} ${title.year ?? ''} ${
+    title.director ?? ''
+  } ${title.cast.join(' ')}`
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+  return { title, haystack, tokens: haystack.split(' ').filter(Boolean) }
+}
+
+/**
+ * The catalogue arrives in slices while the panel's three-megabyte lists are on
+ * the wire, so this index grows with it: an unchanged catalogue costs a length
+ * check, a grown one indexes only the new tail, and a replaced array (the
+ * finished pull) starts it over.
+ */
 function buildIndex(catalog: CatalogSnapshot): IndexEntry[] {
-  const key = `${catalog.account}:${catalog.builtAt}`
-  if (indexCache?.key === key) return indexCache.entries
-  const all: Title[] = [...catalog.movies, ...catalog.series, ...catalog.channels]
-  const entries = all.map((title) => {
-    const haystack = `${title.name} ${title.genres.join(' ')} ${title.categoryName} ${title.year ?? ''} ${
-      title.director ?? ''
-    } ${title.cast.join(' ')}`
-      .toLowerCase()
-      .replace(/\s+/g, ' ')
-    return { title, haystack, tokens: haystack.split(' ').filter(Boolean) }
-  })
-  indexCache = { key, entries }
+  const pools = [catalog.movies, catalog.series, catalog.channels] as const
+  const state = indexState
+  if (state && state.movies === pools[0] && state.series === pools[1] && state.channels === pools[2]) {
+    const [doneMovies, doneSeries, doneChannels] = state.counts
+    if (doneMovies <= pools[0].length && doneSeries <= pools[1].length && doneChannels <= pools[2].length) {
+      if (doneMovies < pools[0].length) {
+        for (let i = doneMovies; i < pools[0].length; i += 1) state.entries.push(indexEntry(pools[0][i]))
+      }
+      if (doneSeries < pools[1].length) {
+        for (let i = doneSeries; i < pools[1].length; i += 1) state.entries.push(indexEntry(pools[1][i]))
+      }
+      if (doneChannels < pools[2].length) {
+        for (let i = doneChannels; i < pools[2].length; i += 1) state.entries.push(indexEntry(pools[2][i]))
+      }
+      state.counts = [pools[0].length, pools[1].length, pools[2].length]
+      return state.entries
+    }
+  }
+  const entries: IndexEntry[] = []
+  for (const pool of pools) for (const title of pool) entries.push(indexEntry(title))
+  indexState = {
+    movies: pools[0],
+    series: pools[1],
+    channels: pools[2],
+    counts: [pools[0].length, pools[1].length, pools[2].length],
+    entries,
+  }
   return entries
+}
+
+/**
+ * Builds the whole index during the launch warm-up, in slices, so the first
+ * keystroke in Search on a cached catalogue is a filter and nothing else.
+ */
+export async function warmSearchIndex(catalog: CatalogSnapshot): Promise<void> {
+  const pools = [catalog.movies, catalog.series, catalog.channels] as const
+  const entries: IndexEntry[] = []
+  let sinceYield = 0
+  for (const pool of pools) {
+    for (const title of pool) {
+      entries.push(indexEntry(title))
+      if (++sinceYield >= 4000) {
+        sinceYield = 0
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      }
+    }
+  }
+  indexState = {
+    movies: pools[0],
+    series: pools[1],
+    channels: pools[2],
+    counts: [pools[0].length, pools[1].length, pools[2].length],
+    entries,
+  }
 }
 
 /** Client-side search over the cached catalog — instant, works offline, and

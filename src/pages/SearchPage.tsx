@@ -44,6 +44,11 @@ const KINDS: Array<{ key: SearchFilters['kind']; label: string }> = [
 
 export default function SearchPage() {
   const snapshot = useCatalog((s) => s.snapshot)
+  const catalogStatus = useCatalog((s) => s.status)
+  const catalogProgress = useCatalog((s) => s.progress)
+  // The library keeps arriving while the panel streams its big lists, so a
+  // partial catalogue is a "Loading", never a "nothing matches".
+  const stillLoading = catalogStatus !== 'ready' || catalogProgress < 100
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [picker, setPicker] = useState<{ name: string; channels: Title[] } | null>(null)
@@ -227,6 +232,9 @@ export default function SearchPage() {
 
             <section>
               <SectionHeading title="Trending searches" meta="Popular this week" />
+              {!trending.length && stillLoading ? (
+                <p className="text-[11px] uppercase tracking-wider text-ink-mute">Loading the library…</p>
+              ) : null}
               <div className="flex flex-wrap gap-1.5">
                 {trending.map((t, i) => (
                   <button
@@ -327,6 +335,20 @@ export default function SearchPage() {
                 Showing the 120 strongest matches · refine the query for more
               </p>
             ) : null}
+
+            {stillLoading ? (
+              <p className="flex items-center justify-center gap-2 text-[11px] uppercase tracking-wider text-ink-mute">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/25 border-t-crimson" />
+                Loading more matches…
+              </p>
+            ) : null}
+          </div>
+        ) : stillLoading ? (
+          <div className="flex flex-col items-center gap-3 py-20 text-center">
+            <span className="h-9 w-9 animate-spin rounded-full border-2 border-white/25 border-t-crimson" />
+            <p className="text-sm text-ink-mute">
+              Loading the library · matches appear here as it arrives
+            </p>
           </div>
         ) : (
           <EmptyState
