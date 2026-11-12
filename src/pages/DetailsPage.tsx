@@ -16,6 +16,7 @@ import { useSettings } from '../store/settings'
 import { detectNetworkSpeed, pickEdition } from '../lib/editions'
 import { formatClock, nowPlaying, nextUp, programmeProgress } from '../lib/epg'
 import { formatRuntime, formatTimecode, nameWithoutYear, relativeTime } from '../lib/format'
+import { episodeDurationLabel } from '../lib/episodeDuration'
 import { QUALITY_LABELS } from '../lib/config'
 import type { RawEpisode, Title } from '../types'
 
@@ -411,6 +412,9 @@ export default function DetailsPage() {
                   const isCurrent = seriesProgress?.season === season && seriesProgress?.episode === epNum
                   const isWatched = !!watched[`${title.id}:${season}:${epNum}`]
                   const expanded = expandedEpisode === epNum
+                  // See lib/episodeDuration: a missing or zero length is no badge
+                  // at all, rather than "00:00:00" on every thumbnail.
+                  const epDuration = episodeDurationLabel(ep.info?.duration, ep.info?.duration_secs)
                   return (
                     <div key={String(ep.id)} className="border-b border-stroke last:border-0">
                       <div className="flex items-stretch gap-2 bg-layer-1 p-2 transition-colors hover:bg-layer-2 sm:gap-3 sm:p-2.5">
@@ -432,9 +436,11 @@ export default function DetailsPage() {
                               <Icon name="play" size={14} />
                             </span>
                           </span>
-                          <span className="absolute bottom-1 right-1 rounded-[2px] bg-black/75 px-1 py-0.5 text-[9px] font-bold tabular">
-                            {ep.info?.duration || formatTimecode(ep.info?.duration_secs ?? 0)}
-                          </span>
+                          {epDuration ? (
+                            <span className="absolute bottom-1 right-1 rounded-[2px] bg-black/75 px-1 py-0.5 text-[9px] font-bold tabular">
+                              {epDuration}
+                            </span>
+                          ) : null}
                         </button>
 
                         <div className="min-w-0 flex-1">
