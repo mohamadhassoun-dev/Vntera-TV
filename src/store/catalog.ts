@@ -610,28 +610,35 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         ): Promise<T[]> => {
           const queue = [...ids]
           const out = new Map<number, T>()
+          const failed: string[] = []
           let done = 0
+          /** Fetches one category; false means it never arrived. */
+          const pullOne = async (id: string): Promise<boolean> => {
+            let streamed = 0
+            const take = (items: T[]) => {
+              if (!items.length) return
+              for (const item of items) {
+                const key = idOf(item)
+                if (key) out.set(key, item)
+              }
+              streamed += items.length
+              append(items)
+            }
+            try {
+              const list = await fetchOne(id, take)
+              // A body that never streamed arrives whole here instead.
+              if (!streamed && list.length) take(list)
+              return true
+            } catch (error) {
+              console.warn(`[catalog] ${label} category failed`, id, error)
+              return false
+            }
+          }
           const worker = async () => {
             for (;;) {
               const id = queue.shift()
               if (!id) return
-              let streamed = 0
-              const take = (items: T[]) => {
-                if (!items.length) return
-                for (const item of items) {
-                  const key = idOf(item)
-                  if (key) out.set(key, item)
-                }
-                streamed += items.length
-                append(items)
-              }
-              try {
-                const list = await fetchOne(id, take)
-                // A body that never streamed arrives whole here instead.
-                if (!streamed && list.length) take(list)
-              } catch (error) {
-                console.warn(`[catalog] ${label} category failed`, id, error)
-              }
+              if (!(await pullOne(id))) failed.push(id)
               done += 1
               if (done % 3 === 0 || done === ids.length) {
                 set({ phase: `Loading ${label} · ${done}/${ids.length} categories` })
@@ -642,6 +649,14 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
             }
           }
           await Promise.all([worker(), worker(), worker(), worker()])
+          // The panel refuses requests in bursts, and a refused category used to
+          // be written off for the whole visit — the library simply lacked it and
+          // search could never find those titles. Whatever did not land is asked
+          // for again, one at a time, with a longer breath between them.
+          for (const id of failed) {
+            if (!(await pullOne(id))) console.warn(`[catalog] ${label} category still missing`, id)
+            await new Promise((resolve) => setTimeout(resolve, 900))
+          }
           return [...out.values()]
         }
 
