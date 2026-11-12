@@ -26,6 +26,14 @@ export function heroCandidatePool(movies: readonly Title[]): Title[] {
     .sort(
       (a, b) => (b.watchCount ?? 0) - (a.watchCount ?? 0) || (b.rating ?? 0) - (a.rating ?? 0),
     )
+  // A first screen arrives a category at a time, and the Blockbusters flag can
+  // be twenty seconds behind the first poster. Holding the whole page on a
+  // skeleton until then left Home blank while thousands of titles were already
+  // in hand, so the best-rated artwork-bearing movies stand in until the set
+  // itself lands — the same rule the hero already uses when a rotation runs dry.
+  const candidates = blockbusters.length
+    ? blockbusters
+    : [...eligible].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || (b.watchCount ?? 0) - (a.watchCount ?? 0))
 
   // The panel repeats the same film under several stream ids, so one movie is
   // one candidate.
@@ -33,7 +41,7 @@ export function heroCandidatePool(movies: readonly Title[]): Title[] {
   const seenIdentities = new Set<number>()
   const seenArtwork = new Set<number>()
   const pool: Title[] = []
-  for (const movie of blockbusters) {
+  for (const movie of candidates) {
     const artwork = artworkToken(movie)
     const identity = identityToken(movie)
     if (seenIds.has(movie.id) || seenIdentities.has(identity) || seenArtwork.has(artwork)) continue

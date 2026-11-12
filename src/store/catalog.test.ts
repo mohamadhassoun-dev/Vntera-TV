@@ -22,16 +22,16 @@ function channel(id: number, name: string): Title {
   }
 }
 
-function snapshot(channels: Title[]): CatalogSnapshot {
+function snapshot(channels: Title[], movies: Title[] = [], series: Title[] = []): CatalogSnapshot {
   return {
     account: 'test',
     builtAt: 0,
     demo: false,
     channels,
-    movies: [],
-    series: [],
+    movies,
+    series,
     categories: { live: [], vod: [], series: [] },
-    counts: { channels: channels.length, movies: 0, series: 0 },
+    counts: { channels: channels.length, movies: movies.length, series: series.length },
   }
 }
 
@@ -44,10 +44,17 @@ describe('live catalog freshness', () => {
   })
 
   it('keeps a non-empty live snapshot fresh within the refresh window', () => {
-    const cached = snapshot([channel(1, 'LBC')])
+    const cached = snapshot([channel(1, 'LBC')], [{ ...channel(1, 'A Film'), key: 'movie:1', kind: 'movie' }])
     cached.builtAt = 9_999
 
     expect(hasFreshLiveCatalog(cached, 10_000)).toBe(true)
+  })
+
+  it('rebuilds a snapshot that saved live channels but no movies or series', () => {
+    const cached = snapshot([channel(1, 'LBC')])
+    cached.builtAt = 9_999
+
+    expect(hasFreshLiveCatalog(cached, 10_000)).toBe(false)
   })
 })
 
