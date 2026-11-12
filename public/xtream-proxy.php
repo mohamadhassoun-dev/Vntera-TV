@@ -473,11 +473,17 @@ function media_tail_bytes(array $paths, int $headLen): int
 /** Echoes the part of [$offset, $end] already on disk; returns bytes sent. */
 function serve_cached_tail(array $paths, int $headLen, int $offset, int $end): int
 {
+    // The ring starts where the head ends. Asked for an offset inside the head,
+    // it must serve nothing rather than hand back bytes from a later part of the
+    // file under this offset.
+    if ($offset < $headLen) {
+        return 0;
+    }
     $available = media_tail_bytes($paths, $headLen);
     if ($available <= 0) {
         return 0;
     }
-    $from = max($offset, $headLen);
+    $from = $offset;
     $to = min($end, $headLen + $available - 1);
     if ($to < $from) {
         return 0;
@@ -596,7 +602,7 @@ function series_is_faststart(string $headFile): bool
     return $chunk !== '' && strpos($chunk, 'moov') !== false;
 }
 
-function serve_series(string $target): void
+function serve_series(string $target, bool $windowed = true): void
 {
     $cached = series_head($target);
     if ($cached === null) {
@@ -653,9 +659,11 @@ function serve_series(string $target): void
         $end = min($end, $headLen - 1);
         $openEnded = false;
     } elseif ($openEnded) {
-        // Otherwise hand over a window, not the whole file: with a declared
-        // length the player buffers it in earnest and asks for the next window
-        // when it needs it, which is the read-ahead this bridge is here to give.
+        // Hand over a window, not the whole file: with a declared length the
+        // player buffers it in earnest and asks for the next window when it
+        // needs it. Answering the opening request with the entire remainder
+        // instead made episodes sit on a spinner and never start, because the
+        // element kept aborting and re-asking for a two-gigabyte response.
         $end = min($end, $start + MEDIA_WINDOW_BYTES - 1);
         $openEnded = false;
     }
@@ -686,6 +694,7 @@ function serve_series(string $target): void
             // 256 KB writes measured twice the throughput of fpassthru and of
             // 1 MB writes on this host (224 KB/s versus 458 KB/s).
             $left = $localEnd - $start + 1;
+            $written = 0;
             while ($left > 0 && !feof($handle)) {
                 $chunk = fread($handle, (int) min(262144, $left));
                 if ($chunk === false || $chunk === '') {
@@ -693,11 +702,17 @@ function serve_series(string $target): void
                 }
                 echo $chunk;
                 flush();
+                $written += strlen($chunk);
                 $left -= strlen($chunk);
             }
             fclose($handle);
+            // Advance by what was actually sent, never to the nominal end of the
+            // head. A head file that is shorter than its recorded length used to
+            // leave a hole here: the body skipped that many bytes, and the client
+            // got an MP4 with a gap in the middle (a decode error at exactly the
+            // head boundary). Whatever is missing is fetched below instead.
+            $start += $written;
         }
-        $start = $localEnd + 1;
     }
     if ($start > $end) {
         return;
@@ -751,25 +766,55 @@ function serve_series(string $target): void
     }
 
     // Whatever is left (ring full, another request filling it, or the panel
-    // refusing) streams straight from the panel as before. The low-speed guard
-    // keeps a dead edge from holding a slot for the rest of the response.
-    $ch = curl_init($target);
-    curl_setopt_array($ch, [
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_MAXREDIRS => 3,
-        CURLOPT_CONNECTTIMEOUT => 15,
-        CURLOPT_TIMEOUT => 0,
-        CURLOPT_LOW_SPEED_LIMIT => 2048,
-        CURLOPT_LOW_SPEED_TIME => MEDIA_PANEL_STALL_SECS,
-        CURLOPT_RANGE => $start . '-' . $end,
-        CURLOPT_WRITEFUNCTION => static function ($handle, string $data): int {
-            echo $data;
-            flush();
-            return strlen($data);
-        },
-    ]);
-    curl_exec($ch);
-    curl_close($ch);
+    // refusing) streams straight from the panel.
+    //
+    // This used to be one curl call whose low-speed guard simply ended the body.
+    // The response had already promised `Content-Length`, so a panel that went
+    // quiet for a moment produced a short body: the browser reports
+    // ERR_CONTENT_LENGTH_MISMATCH, and a media element either fails to decode or
+    // decides the file has ended. A dropped panel connection is normal here, so
+    // the remaining bytes are requested again from where the last attempt stopped
+    // instead of being written off.
+    $pos = $start;
+    for ($attempt = 0; $attempt < 6 && $pos <= $end && !connection_aborted(); $attempt += 1) {
+        $got = 0;
+        $rangeStart = -1;
+        $ch = curl_init($target);
+        curl_setopt_array($ch, [
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 3,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_LOW_SPEED_LIMIT => 2048,
+            CURLOPT_LOW_SPEED_TIME => MEDIA_PANEL_STALL_SECS,
+            CURLOPT_RANGE => $pos . '-' . $end,
+            CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$rangeStart): int {
+                if (preg_match('#^content-range:\s*bytes\s+(\d+)-#i', rtrim($line, "\r\n"), $m)) {
+                    $rangeStart = (int) $m[1];
+                }
+                return strlen($line);
+            },
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $data) use (&$got, &$rangeStart, $pos): int {
+                $size = strlen($data);
+                // A panel that ignores the range answers from byte zero; those
+                // bytes belong further up the file and must not be served here.
+                if ($rangeStart >= 0 && $rangeStart !== $pos && $got === 0) {
+                    return 0;
+                }
+                echo $data;
+                flush();
+                $got += $size;
+                return $size;
+            },
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+        if ($got <= 0) {
+            // Nothing new: a dead edge. Do not spin on it.
+            break;
+        }
+        $pos += $got;
+    }
 }
 
 // Forward only what the panel needs; browser cookies and origins stay here.

@@ -139,6 +139,14 @@ export function Player({
   const tsRef = useRef<ReturnType<MpegtsLib['createPlayer']> | null>(null)
   const hideTimer = useRef<number | null>(null)
   const lastSaved = useRef(0)
+  /** Last position the clock really reached, so a truncated file can resume there. */
+  const clockAt = useRef(0)
+  /** Rescues spent on a file that reported "ended" before its data did. */
+  const truncations = useRef(0)
+  /** Damaged stretches skipped so a bad few seconds cannot end a whole film. */
+  const skipFixes = useRef(0)
+  /** Furthest real position of this source, kept across a rescue's re-attach. */
+  const furthest = useRef(0)
   /** Last position pushed into React state, so playback does not re-render constantly. */
   const lastPushedTime = useRef(0)
   /** Long-press repeat on the skip buttons, and whether the press already stepped. */
@@ -544,6 +552,12 @@ export function Player({
     autoRetries.current = 0
     hasPlayed.current = false
     recoveryTried.current = false
+    truncations.current = 0
+    skipFixes.current = 0
+    furthest.current = 0
+    // clockAt is deliberately kept: a rescue re-attaches the same title, and the
+    // position reached before that reload is exactly where it has to resume. The
+    // next timeupdate replaces it as soon as the new source plays.
     liveRetunes.current = 0
     tuneRetries.current = 0
     stallRetunes.current = 0
@@ -563,6 +577,8 @@ export function Player({
     const video = videoRef.current
     if (!video) return
     const onTime = () => {
+      clockAt.current = video.currentTime
+      if (video.currentTime > furthest.current) furthest.current = video.currentTime
       // Labels show whole seconds, so half-second renders are wasted work.
       const next = video.currentTime
       if (Math.abs(next - lastPushedTime.current) < 0.5) return
@@ -624,6 +640,16 @@ export function Player({
       // later. Silently reloading it left a black player with no way out — the
       // viewer saw nothing happen and never got the Retry panel.
       const fatal = code === 3 || code === 4
+      // A decode error partway through a film or episode is usually a damaged
+      // stretch in the panel's own file. Stepping a few seconds past it keeps the
+      // rest of the title playable instead of ending the evening on a card.
+      if (!isLive && code === 3 && hasPlayed.current && skipFixes.current < 2 && video.currentTime > 2) {
+        skipFixes.current += 1
+        resumeAfterRecovery.current = video.currentTime + 10
+        setNotice('Skipping a damaged moment…')
+        setReloadKey((key) => key + 1)
+        return
+      }
       // A dropped connection, on the other hand, is worth one silent resume.
       // A live channel that drops before any picture is retried too: the panel
       // frees the dead socket and hands out a fresh edge within seconds.
@@ -651,6 +677,25 @@ export function Player({
         setPlaying(false)
         setBuffering(false)
         setError('This channel went offline. Try another channel.')
+        return
+      }
+      // A progressive file whose response is cut short makes the browser fire
+      // "ended" pinned to the full duration even though the viewer watched a
+      // fraction of it — and it reports the whole timeline as buffered, so the
+      // buffer cannot tell us. The position actually reached can: nobody ends a
+      // two-hour episode after forty seconds. Resume from there instead of
+      // calling the episode over and autoplaying the next one.
+      const duration = Number.isFinite(video.duration) ? video.duration : 0
+      // After a rescue the new element can end before its first timeupdate, so the
+      // best known position is whichever of these is further along.
+      const watched = Math.max(furthest.current, clockAt.current, resumeAfterRecovery.current)
+      if (duration > 0 && watched > 0 && watched < duration - 60 && truncations.current < 3) {
+        truncations.current += 1
+        // Each rescue lands a little further on, so a damaged stretch that keeps
+        // reporting the file as finished is stepped over instead of replayed.
+        resumeAfterRecovery.current = Math.max(1, watched + 15 * truncations.current)
+        setNotice('Reconnecting to this video…')
+        setReloadKey((key) => key + 1)
         return
       }
       setPlaying(false)
@@ -1259,12 +1304,12 @@ export function Player({
         </div>
       ) : null}
 
-      {/* buffering */}
+      {/* loading */}
       {buffering && !error ? (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/40">
           <span className="h-10 w-10 animate-spin rounded-full border-2 border-white/25 border-t-crimson" />
           <span className="text-center text-[11px] font-bold uppercase tracking-widest text-ink-soft">
-            {isLive ? 'Tuning live stream' : slowBuffer ? 'Slow connection · still buffering' : 'Buffering'}
+            {isLive ? 'Tuning live stream' : slowBuffer ? 'Slow connection · still loading' : 'Loading'}
           </span>
           {slowBuffer && !isLive ? (
             <span className="text-[10px] text-ink-mute">Your connection is slower than this file — give it a moment.</span>
@@ -1471,7 +1516,7 @@ export function Player({
                   </div>
                   <div className="flex items-center gap-2 text-[11px] tabular text-ink-soft">
                     <span>{formatTimecode(Math.max(0, current - liveWindow.start))}</span>
-                    <span className="text-ink-mute">of {formatTimecode(liveWindow.end - liveWindow.start)} buffered</span>
+                    <span className="text-ink-mute">of {formatTimecode(liveWindow.end - liveWindow.start)} loaded</span>
                     <span className="ml-auto" />
                   </div>
                 </>
