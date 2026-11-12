@@ -88,6 +88,13 @@ interface CacheMeta {
 const partialCaches = new WeakSet<CatalogSnapshot>()
 
 /**
+ * What a read cache actually holds: the parts on disk are the titles this visit
+ * starts from, so a resumed load can skip writing them again.
+ */
+let lastCacheShape: { builtAt: number; movieParts: number; seriesParts: number; hasChannels: boolean } | null =
+  null
+
+/**
  * Hands a frame back between chunks of cache work so a visible page stays
  * responsive. A hidden tab has no frames to protect, and browsers clamp its
  * timers to about a second, which turned a cache read into a minute-long wait
@@ -105,6 +112,7 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 async function readCache(account: string): Promise<CatalogSnapshot | null> {
+  lastCacheShape = null
   const meta = await idbGet<CacheMeta>(`${cacheKey(account)}:meta`)
   if (!meta) return idbGet<CatalogSnapshot>(legacyKey(account))
   const channels: Title[] = (await idbGet<Title[]>(`${cacheKey(account)}:channels`)) ?? []
@@ -146,6 +154,12 @@ async function readCache(account: string): Promise<CatalogSnapshot | null> {
     series,
   }
   if (meta.complete === false) partialCaches.add(snapshot)
+  lastCacheShape = {
+    builtAt: meta.builtAt,
+    movieParts: meta.movieParts,
+    seriesParts: meta.seriesParts,
+    hasChannels: channels.length > 0,
+  }
   return snapshot
 }
 
@@ -295,6 +309,15 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
 
     const run = async () => {
       const cached = await readCache(account)
+      // Resuming a library a previous visit was still downloading: its stored
+      // parts hold the titles this visit starts from, so the counters are seeded
+      // with them and the first save writes only what is new. Without this the
+      // resumed load rewrote every part it had just read back.
+      if (cached && partialCaches.has(cached) && lastCacheShape) {
+        storedMovies = lastCacheShape.movieParts * PART_SIZE
+        storedSeries = lastCacheShape.seriesParts * PART_SIZE
+        storedChannelsFor = lastCacheShape.hasChannels ? lastCacheShape.builtAt : 0
+      }
       // Warming the derived answers is a landing-page nicety, and it walks every
       // movie in the library. Waiting for all of it before publishing a snapshot
       // that is already in hand left a watch page without its title — and on the
@@ -331,9 +354,14 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         let vod: RawVodStream[] = []
         let seriesRaw: RawSeries[] = []
 
-        let channels: Title[] = []
-        let movies: Title[] = []
-        let series: Title[] = []
+        // A resumed partial library continues from what is already on disk:
+        // the new pull then appends only the titles it does not have yet (the
+        // dedupe below seeds itself from these lists), and the cache counters
+        // seeded from the stored meta stay true for the whole visit.
+        const resumed = cached && partialCaches.has(cached) ? cached : null
+        let channels: Title[] = resumed?.channels ?? []
+        let movies: Title[] = resumed?.movies ?? []
+        let series: Title[] = resumed?.series ?? []
         const catArg = {
           live: categories.live as RawCategory[],
           vod: categories.vod as RawCategory[],
@@ -516,6 +544,8 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
                   // pull finished, and setting it here stopped every later
                   // streamed batch from reaching the grid.
                   movies = built.movies
+                  // This slice is a different list from whatever was stored.
+                  storedMovies = 0
                   publish(45)
                   set({ phase: `Showing ${movies.length.toLocaleString()} titles` })
                 },
@@ -628,6 +658,9 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
             const built = await buildCatalogAsync({ account, live: [], vod: r, seriesRaw: [], categories: catArg })
             if (!built.movies.length) return
             movies = built.movies
+            // A fresh pull reorders and re-ids the list, so nothing on disk can
+            // be trusted as already written against these arrays.
+            storedMovies = 0
             publish(70)
             set({ phase: `Movies ready · ${r.length.toLocaleString()} titles` })
           })
@@ -650,6 +683,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
             const built = await buildCatalogAsync({ account, live: [], vod: [], seriesRaw: r, categories: catArg })
             if (!built.series.length) return
             series = built.series
+            storedSeries = 0
             publish(88)
             set({ phase: `Series ready · ${r.length.toLocaleString()} titles` })
           })
