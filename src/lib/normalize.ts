@@ -122,8 +122,14 @@ export function isUsableImage(url?: string): boolean {
   if (!url) return false
   const u = url.trim().toLowerCase()
   if (!u.startsWith('http') && !u.startsWith('data:image')) return false
+  if (u.startsWith('data:image')) return true
   if (/(no[-_]?image|noimage|placeholder|dummy|default[-_]?poster|nophoto|blank\.(png|jpg))/.test(u)) return false
-  return true
+  // Some panels send the image host and its size prefix with no file name
+  // (`.../t/p/w600_and_h900_bestv2`). Asking for that returns an error page and
+  // a console failure on every card that renders it, so it is not artwork.
+  const path = u.split('?')[0].split('#')[0]
+  const last = path.slice(path.lastIndexOf('/') + 1)
+  return last.includes('.')
 }
 
 /** Clean a raw name for display: strip edition tags but keep the title itself. */

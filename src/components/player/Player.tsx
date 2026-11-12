@@ -192,6 +192,16 @@ export function Player({
     onPlayingChange?.(playing)
   }, [playing, onPlayingChange])
   const [buffering, setBuffering] = useState(true)
+  /** The browser refused to start on its own, so nothing plays until a tap. */
+  const [needsTap, setNeedsTap] = useState(false)
+  /** Every start goes through here: a refused autoplay becomes a visible control
+   *  instead of a still frame the viewer cannot explain. */
+  const startPlayback = useCallback((el: HTMLVideoElement | null) => {
+    if (!el) return
+    el.play().catch((err: unknown) => {
+      if ((err as DOMException | undefined)?.name === 'NotAllowedError') setNeedsTap(true)
+    })
+  }, [])
   /** Buffering is taking long enough that the viewer deserves a hint. */
   const [slowBuffer, setSlowBuffer] = useState(false)
   const [current, setCurrent] = useState(0)
@@ -253,7 +263,7 @@ export function Player({
     const video = videoRef.current
     if (video) {
       video.currentTime = 0
-      void video.play().catch(() => undefined)
+      startPlayback(video)
     }
   }, [resumeOpen, duration, startAt])
   const [ended, setEnded] = useState(false)
@@ -455,7 +465,7 @@ export function Player({
           setError(TUNE_ERROR_MESSAGE)
           setBuffering(false)
         })
-        void video.play().catch(() => undefined)
+        startPlayback(video)
         return
       }
 
@@ -466,7 +476,7 @@ export function Player({
         if (!Hls.isSupported()) {
           // No MSE: hand the URL to the browser and hope for native support.
           video.src = url
-          void video.play().catch(() => undefined)
+          startPlayback(video)
           return
         }
         // On a thin link start conservative: a big first segment is what turns
@@ -508,7 +518,7 @@ export function Player({
           setSubtitleTracks(
             (hls?.subtitleTracks ?? []).map((t, i) => ({ index: i, label: t.name || t.lang || `Subtitles ${i + 1}` })),
           )
-          void video.play().catch(() => undefined)
+          startPlayback(video)
         })
         hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_e, data) => setAudioTrack(data.id))
         hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_e, data) => setSubtitleTrack(data.id))
@@ -544,7 +554,7 @@ export function Player({
         })
       } else {
         video.src = url
-        void video.play().catch(() => undefined)
+        startPlayback(video)
       }
     }
 
@@ -568,7 +578,7 @@ export function Player({
       resumeAfterRecovery.current = 0
       const seekBack = () => {
         if (!video.duration || resumeAt < video.duration - 5) video.currentTime = resumeAt
-        void video.play().catch(() => undefined)
+        startPlayback(video)
       }
       if (video.readyState >= 1) seekBack()
       else video.addEventListener('loadedmetadata', seekBack, { once: true })
@@ -672,6 +682,7 @@ export function Player({
       tuneRetries.current = 0
       stallRetunes.current = 0
       setBuffering(false)
+      setNeedsTap(false)
       // The stream recovered: drop any warning that is no longer true. A moved
       // picture is the proof, so even a failure card left over from a rendition
       // that has since been replaced must not stay over a channel that plays.
@@ -1057,7 +1068,7 @@ export function Player({
   const togglePlay = useCallback(() => {
     const video = videoRef.current
     if (!video) return
-    if (video.paused) void video.play().catch(() => undefined)
+    if (video.paused) startPlayback(video)
     else video.pause()
   }, [])
 
@@ -1112,7 +1123,7 @@ export function Player({
     const video = videoRef.current
     if (!video || !liveWindow) return
     video.currentTime = Math.max(liveWindow.start, liveWindow.end - 0.5)
-    if (video.paused) void video.play().catch(() => undefined)
+    if (video.paused) startPlayback(video)
     reveal()
   }, [liveWindow, reveal])
 
@@ -1385,6 +1396,25 @@ export function Player({
         </div>
       ) : null}
 
+      {/* a browser that refuses autoplay leaves a still frame; make the way in obvious */}
+      {needsTap && !error ? (
+        <button
+          type="button"
+          data-nav="true"
+          onClick={() => {
+            setNeedsTap(false)
+            startPlayback(videoRef.current)
+            reveal()
+          }}
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/45"
+        >
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-black shadow-lg">
+            <Icon name="play" size={26} />
+          </span>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-white">Tap to play</span>
+        </button>
+      ) : null}
+
       {/* loading */}
       {buffering && !error ? (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/40">
@@ -1446,7 +1476,7 @@ export function Player({
                 // Closing the prompt means "I'll just watch it" — from the top.
                 setResumeOpen(false)
                 if (videoRef.current) videoRef.current.currentTime = 0
-                void videoRef.current?.play().catch(() => undefined)
+                startPlayback(videoRef.current)
                 armHide()
               }}
             >
@@ -1465,7 +1495,7 @@ export function Player({
                   if (video) {
                     const go = () => {
                       video.currentTime = startAt
-                      void video.play().catch(() => undefined)
+                      startPlayback(video)
                     }
                     if (video.readyState >= 1) go()
                     else video.addEventListener('loadedmetadata', go, { once: true })
@@ -1481,7 +1511,7 @@ export function Player({
                 onClick={() => {
                   setResumeOpen(false)
                   if (videoRef.current) videoRef.current.currentTime = 0
-                  void videoRef.current?.play().catch(() => undefined)
+                  startPlayback(videoRef.current)
                   armHide()
                 }}
               >
@@ -1503,7 +1533,7 @@ export function Player({
                 const video = videoRef.current
                 if (video) {
                   video.currentTime = 0
-                  void video.play().catch(() => undefined)
+                  startPlayback(video)
                 }
                 setEnded(false)
               }}
