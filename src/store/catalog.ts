@@ -424,6 +424,17 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
             seenSeriesIds.add(title.id)
           }
         }
+        /**
+         * "Showing N titles" is a promise about what is on screen, and the
+         * streamed batches kept growing the grid under a number written at the
+         * first paint — the page claimed 836 while holding 4,050. While the page
+         * is in that state the count is restated; a pull narrating its own
+         * progress ("Loading movies · 3/105") is left alone.
+         */
+        const restateTitleCount = () => {
+          if (!get().phase.startsWith('Showing')) return
+          set({ phase: `Showing ${movies.length.toLocaleString()} titles` })
+        }
         const drainMovies = () => {
           movieTimer = 0
           const batch = movieQueue
@@ -439,6 +450,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
                 movies.push(title)
               }
               publish(Math.min(69, 46 + Math.floor(movies.length / 2000)))
+              restateTitleCount()
             })
             .catch((error) => console.warn('[catalog] movie batch failed', error))
         }
