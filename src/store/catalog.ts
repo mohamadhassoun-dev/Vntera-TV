@@ -205,7 +205,11 @@ async function writeCache(account: string, snapshot: CatalogSnapshot, complete =
     complete,
   }
   await idbSet(`${cacheKey(account)}:meta`, meta)
-  await idbSet(`${cacheKey(account)}:channels`, snapshot.channels)
+  // A load whose live pull failed still finishes, and writing its empty list here
+  // wiped thousands of stored channels: Live TV came back empty, and because a
+  // cache with no channels never counts as fresh, every later visit pulled the
+  // whole catalogue again. An empty list means "unknown", not "no channels".
+  if (snapshot.channels.length) await idbSet(`${cacheKey(account)}:channels`, snapshot.channels)
   for (let part = 0; part < movieParts.length; part += 1) {
     await idbSet(`${cacheKey(account)}:movies:${part}`, movieParts[part])
     await breathe()
@@ -729,7 +733,14 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         const results = await Promise.allSettled([liveTask, vodTask, seriesTask])
         const failed = results.filter((r) => r.status === 'rejected').length
 
-        if (!live.length) {
+        if (!live.length && !channels.length && cached?.channels.length) {
+          // The live list could not be fetched at all. The channels on disk are
+          // still the provider's line-up from a few minutes ago, so they stay
+          // until a refresh really succeeds rather than the screen going empty.
+          channels = cached.channels
+          set({ phase: `Listing ${channels.length.toLocaleString()} channels` })
+        }
+        if (!live.length && !channels.length) {
           // Fallback: derive channels from the M3U playlist when the JSON list is empty.
           try {
             set({ phase: 'Parsing M3U playlist', progress: 82 })
