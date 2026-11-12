@@ -222,6 +222,19 @@ export function Player({
   const [audioOnly, setAudioOnly] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [resumeOpen, setResumeOpen] = useState(askResume && startAt > 30)
+  // A saved position at the very end is not somewhere to resume: it is what a
+  // file that stopped early leaves behind, and asking the viewer how to continue
+  // from it blocks playback entirely. Once the real duration is known, such a
+  // save is dropped and the title just starts.
+  useEffect(() => {
+    if (!resumeOpen || !duration || startAt < duration - 30) return
+    setResumeOpen(false)
+    const video = videoRef.current
+    if (video) {
+      video.currentTime = 0
+      void video.play().catch(() => undefined)
+    }
+  }, [resumeOpen, duration, startAt])
   const [ended, setEnded] = useState(false)
   const [scrubbing, setScrubbing] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
@@ -515,7 +528,11 @@ export function Player({
 
     void attach(startOnAlt && srcAlt ? srcAlt : src)
 
-    if (startAt > 30) {
+    // A recovery target always wins over the saved resume point. Both used to
+    // seek on `loadedmetadata`, so the save could put the viewer straight back
+    // onto the damaged moment the recovery had just stepped past.
+    const recovering = resumeAfterRecovery.current > 2
+    if (!recovering && startAt > 30) {
       const onMeta = () => {
         if (video.duration && startAt < video.duration - 20) video.currentTime = startAt
       }
@@ -524,7 +541,7 @@ export function Player({
 
     // After an automatic recovery, continue exactly where the stall hit rather
     // than dropping the viewer back to the resume point from the last save.
-    if (resumeAfterRecovery.current > 2) {
+    if (recovering) {
       const resumeAt = resumeAfterRecovery.current
       resumeAfterRecovery.current = 0
       const seekBack = () => {
@@ -658,9 +675,13 @@ export function Player({
       // A decode error partway through a film or episode is usually a damaged
       // stretch in the panel's own file. Stepping a few seconds past it keeps the
       // rest of the title playable instead of ending the evening on a card.
-      if (!isLive && code === 3 && hasPlayed.current && skipFixes.current < 2 && video.currentTime > 2) {
+      // The damage is often exactly at a saved resume point, so playback has not
+      // started yet when this fires: never require a first frame to skip it.
+      if (!isLive && code === 3 && skipFixes.current < 12 && video.currentTime > 2) {
         skipFixes.current += 1
-        resumeAfterRecovery.current = video.currentTime + 10
+        // Each repeat steps a little further, so a damaged stretch longer than
+        // the first step is cleared instead of being hit again one second later.
+        resumeAfterRecovery.current = video.currentTime + 5 * Math.min(6, skipFixes.current)
         setNotice('Skipping a damaged moment…')
         setReloadKey((key) => key + 1)
         return

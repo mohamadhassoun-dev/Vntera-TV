@@ -40,7 +40,13 @@ const MEDIA_CACHE_LIMIT = 3221225472; // 3 GB
  * buffered in earnest instead, so the player builds a proper cushion (measured:
  * 2.4 s endless against ~20 s+ windowed on the same film).
  */
-const MEDIA_WINDOW_BYTES = 12 * 1024 * 1024;
+// One response hands over this much. The opening 20 MB come off this disk and
+// the rest streams from the panel (measured ~12 MB/s through this bridge), so a
+// 48 MB window arrives in a few seconds and leaves the player about five minutes
+// of media buffered. That head start is what keeps a slow edge from starving the
+// picture: background filling is impossible here (exec, system and popen are
+// disabled and there is no fastcgi_finish_request), so depth is the lever.
+const MEDIA_WINDOW_BYTES = 48 * 1024 * 1024;
 /** How much of a film is kept on disk past its cached head, per title. */
 const MEDIA_TAIL_BYTES = 96 * 1024 * 1024;
 /** How much the bridge pulls from the panel before handing it to the player. */
