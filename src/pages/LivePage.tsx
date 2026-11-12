@@ -114,7 +114,7 @@ export default function LivePage() {
             <div className="flex items-center gap-2">
               <div className="flex overflow-hidden rounded-[4px] border border-stroke">
                 <button
-                  className={`flex h-9 w-9 items-center justify-center ${view === 'grid' ? 'bg-layer-4 text-white' : 'bg-layer-1 text-ink-mute'}`}
+                  className={`flex h-10 w-10 items-center justify-center ${view === 'grid' ? 'bg-layer-4 text-white' : 'bg-layer-1 text-ink-mute'}`}
                   onClick={() => setView('grid')}
                   data-nav="true"
                   aria-label="Grid view"
@@ -122,7 +122,7 @@ export default function LivePage() {
                   <Icon name="grid" size={16} />
                 </button>
                 <button
-                  className={`flex h-9 w-9 items-center justify-center ${view === 'list' ? 'bg-layer-4 text-white' : 'bg-layer-1 text-ink-mute'}`}
+                  className={`flex h-10 w-10 items-center justify-center ${view === 'list' ? 'bg-layer-4 text-white' : 'bg-layer-1 text-ink-mute'}`}
                   onClick={() => setView('list')}
                   data-nav="true"
                   aria-label="List view"
@@ -178,7 +178,7 @@ export default function LivePage() {
               onClick={() => selectCategory(c.id)}
               data-nav="true"
               aria-pressed={category === c.id}
-              className={`shrink-0 rounded-[3px] border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+              className={`flex min-h-10 shrink-0 items-center rounded-[3px] border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
                 category === c.id
                   ? 'border-crimson bg-crimson text-white'
                   : 'border-stroke bg-layer-1 text-ink-soft hover:border-white/30 hover:text-white'

@@ -318,6 +318,27 @@
     color: #fff;
   }
 
+  /* Touch targets: a thumb cannot reliably hit a 36px square, and the hero
+     buttons came out at 37px tall on a phone. These minimums only apply to the
+     phone layout, and only to controls that already exist. */
+  @media (max-width: 640px) {
+    .btn {
+      min-height: 44px;
+    }
+    .icon-btn {
+      min-width: 44px;
+      min-height: 44px;
+    }
+    .horror-heading,
+    .band-heading {
+      min-height: 44px;
+    }
+    /* Filter pills: 32–37px tall is a mis-tap on a phone. */
+    .tab {
+      min-height: 40px;
+    }
+  }
+
   .panel {
     background: #181818;
     border: 1px solid #2a2a2a;

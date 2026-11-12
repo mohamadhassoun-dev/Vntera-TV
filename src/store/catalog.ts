@@ -112,6 +112,20 @@ async function readCache(account: string): Promise<CatalogSnapshot | null> {
     await breathe()
   }
   if (!channels.length && !movies.length && !series.length) return null
+  // A snapshot written before the artwork rule existed can still point a card at
+  // an image URL with no file name, which only ever yields a failed request and
+  // a blank tile. Clearing those here fixes every stored catalogue on the spot,
+  // instead of forcing a phone through a full 57k-title rebuild.
+  for (const list of [channels, movies, series]) {
+    for (const title of list) {
+      const poster = title.poster
+      if (!poster) continue
+      const path = poster.split('?')[0]
+      if (path.slice(path.lastIndexOf('/') + 1).includes('.')) continue
+      title.poster = undefined
+      title.hasArtwork = Boolean(title.backdrop)
+    }
+  }
   return {
     account: meta.account,
     builtAt: meta.builtAt,

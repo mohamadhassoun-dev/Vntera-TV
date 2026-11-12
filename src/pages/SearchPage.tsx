@@ -128,7 +128,7 @@ export default function SearchPage() {
             />
             <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
               {query ? (
-                <button onClick={() => setQuery('')} className="rounded p-1.5 text-ink-mute hover:text-white" aria-label="Clear">
+                <button onClick={() => setQuery('')} className="flex h-9 w-9 items-center justify-center rounded text-ink-mute hover:text-white" aria-label="Clear">
                   <Icon name="close" size={16} />
                 </button>
               ) : null}

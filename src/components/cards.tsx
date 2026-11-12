@@ -606,20 +606,26 @@ export function Hero({
                   data-nav="true"
                   aria-label={`Show featured movie ${i + 1}`}
                   aria-current={i === slideIndex ? 'true' : undefined}
-                  className={`relative h-1.5 overflow-hidden rounded-full transition-[width,background-color] duration-300 ease-out ${
-                    i === slideIndex ? 'w-7 bg-white/25' : 'w-1.5 bg-white/35 hover:bg-white/70'
-                  }`}
+                  className="relative -my-4 flex h-11 items-center px-1"
                 >
                   {/* The dot fills over the slide's whole duration instead of
-                      just jumping to the next one. */}
-                  {i === slideIndex ? (
-                    <span
-                      key={slideIndex}
-                      aria-hidden="true"
-                      className="hero-dot-fill absolute inset-y-0 left-0 w-full rounded-full bg-crimson"
-                      style={{ animationDuration: `${HERO_SLIDE_MS}ms` }}
-                    />
-                  ) : null}
+                      just jumping to the next one. The bar stays 6px tall; the
+                      button around it is thumb-sized. */}
+                  <span
+                    aria-hidden="true"
+                    className={`relative block h-1.5 overflow-hidden rounded-full transition-[width,background-color] duration-300 ease-out ${
+                      i === slideIndex ? 'w-7 bg-white/25' : 'w-1.5 bg-white/35 hover:bg-white/70'
+                    }`}
+                  >
+                    {i === slideIndex ? (
+                      <span
+                        key={slideIndex}
+                        aria-hidden="true"
+                        className="hero-dot-fill absolute inset-y-0 left-0 w-full rounded-full bg-crimson"
+                        style={{ animationDuration: `${HERO_SLIDE_MS}ms` }}
+                      />
+                    ) : null}
+                  </span>
                 </button>
               ))}
             </div>

@@ -80,6 +80,11 @@ export async function idbDel(key: string): Promise<void> {
   }
 }
 
+export async function idbKeys(): Promise<string[]> {
+  const keys = await withStore<IDBValidKey[]>('readonly', (s) => s.getAllKeys())
+  return (keys ?? []).map((key) => String(key))
+}
+
 export async function idbClear(): Promise<void> {
   await withStore<undefined>('readwrite', (s) => s.clear())
   try {

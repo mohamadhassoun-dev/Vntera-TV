@@ -1787,7 +1787,9 @@ export function Player({
                       videoRef.current.muted = v === 0
                     }
                   }}
-                  className="h-1 w-16 cursor-pointer appearance-none rounded-full bg-white/30 accent-crimson"
+                  /* A 4px slider is not a phone control, and phones change volume
+                     with their own buttons: the mute toggle stays, the slider does not. */
+                  className="hidden h-1 w-16 cursor-pointer appearance-none rounded-full bg-white/30 accent-crimson sm:block"
                   aria-label="Volume"
                 />
               </div>
@@ -1944,7 +1946,7 @@ function MenuButton({
     <button
       onClick={onClick}
       data-nav="true"
-      className={`flex h-8 items-center gap-1 rounded-[3px] border px-1.5 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+      className={`flex h-10 w-10 items-center justify-center gap-1 rounded-[3px] border px-1.5 text-[10px] font-bold uppercase tracking-wide transition-colors sm:h-8 sm:w-auto ${
         active ? 'border-white/60 bg-white/20 text-white' : 'border-white/20 bg-black/30 text-ink-soft hover:text-white'
       }`}
       aria-label={icon === 'subtitles' ? 'Subtitles' : label}

@@ -352,7 +352,7 @@ export default function DetailsPage() {
                 key={e.streamId}
                 onClick={() => setEditionId(e.streamId)}
                 data-nav="true"
-                className={`flex items-center gap-2 rounded-[3px] border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
+                className={`flex min-h-10 items-center gap-2 rounded-[3px] border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
                   activeEdition.streamId === e.streamId
                     ? 'border-white/60 bg-white/10 text-white'
                     : 'border-stroke bg-layer-1 text-ink-soft hover:border-white/30'
@@ -413,10 +413,10 @@ export default function DetailsPage() {
                   const expanded = expandedEpisode === epNum
                   return (
                     <div key={String(ep.id)} className="border-b border-stroke last:border-0">
-                      <div className="flex items-stretch gap-3 bg-layer-1 p-2.5 transition-colors hover:bg-layer-2">
+                      <div className="flex items-stretch gap-2 bg-layer-1 p-2 transition-colors hover:bg-layer-2 sm:gap-3 sm:p-2.5">
                         <button
                           onClick={() => play({ season, episode: epNum })}
-                          className="relative w-[7.5rem] shrink-0 overflow-hidden rounded-[3px] bg-layer-2 sm:w-[9.5rem]"
+                          className="relative w-24 shrink-0 overflow-hidden rounded-[3px] bg-layer-2 sm:w-[9.5rem]"
                           aria-label={`Play episode ${epNum}`}
                           data-nav="true"
                         >
@@ -441,7 +441,7 @@ export default function DetailsPage() {
                           <div className="flex items-start justify-between gap-2">
                             <button
                               onClick={() => setExpandedEpisode(expanded ? null : epNum)}
-                              className="min-w-0 text-left"
+                              className="min-h-10 min-w-0 text-left"
                               data-nav="true"
                             >
                               <div className="flex items-center gap-2">
@@ -454,7 +454,7 @@ export default function DetailsPage() {
                                 </p>
                               ) : null}
                             </button>
-                            <div className="flex shrink-0 flex-col items-end gap-1">
+                            <div className="flex shrink-0 items-center gap-1 sm:flex-col sm:items-end">
                               {isCurrent ? (
                                 <span className="badge border-crimson/60 text-crimson">WATCHING</span>
                               ) : isWatched ? (
@@ -518,7 +518,7 @@ export default function DetailsPage() {
                 <Link
                   key={g}
                   to={`/${title.kind === 'series' ? 'series' : 'movies'}?genre=${encodeURIComponent(g.trim())}`}
-                  className="rounded-full border border-stroke bg-layer-1 px-2.5 py-1 text-[11px] text-ink-soft hover:border-white/30 hover:text-white"
+                  className="inline-flex min-h-10 items-center rounded-full border border-stroke bg-layer-1 px-3 py-1 text-[11px] text-ink-soft hover:border-white/30 hover:text-white sm:min-h-0 sm:px-2.5"
                   data-nav="true"
                 >
                   {g.trim()}

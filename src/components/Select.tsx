@@ -111,7 +111,7 @@ export function Select({
         aria-label={`${label}: ${current?.label ?? ''}`}
         onClick={() => setOpen((value) => !value)}
         onKeyDown={onKeyDown}
-        className={`flex w-full items-center gap-2 rounded-[4px] border transition-colors ${
+        className={`flex min-h-11 w-full items-center gap-2 rounded-[4px] border transition-colors sm:min-h-0 ${
           open ? 'border-crimson/70 bg-layer-3' : 'border-stroke bg-layer-1 hover:border-white/25'
         } ${compact ? 'px-2.5 py-2' : 'px-3 py-2.5'}`}
       >
