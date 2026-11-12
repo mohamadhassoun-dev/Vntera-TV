@@ -317,10 +317,13 @@ export function Player({
 
     let hls: InstanceType<HlsCtor> | null = null
     let tsPlayer: ReturnType<MpegtsLib['createPlayer']> | null = null
+    /** Which rendition the current attempt is on, so a failure can fall back. */
+    let usingAlt = startOnAlt
     let cancelled = false
     const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== ''
 
     const attach = async (url: string) => {
+      usingAlt = !!srcAlt && url === srcAlt
       // Xtream live is normally raw MPEG-TS, which <video> cannot demux. Use
       // mpegts.js over MSE for .ts; HLS stays available as a fallback format.
       if (isLive && isTsUrl(url)) {
@@ -364,11 +367,16 @@ export function Player({
         // mpegts.js reports errors it can recover from, and it keeps decoding while
         // it retries — so a running picture must not be hidden behind a failure card.
         let tsRecoveries = 0
+        let lastTsClock = { current: video.currentTime }
         tsPlayer.on(mpegts.Events.ERROR, (type?: string) => {
           if (cancelled || !tsPlayer || tsRef.current !== tsPlayer) return
           // Still playing: the clock is the arbiter, and the stall watchdog below
-          // is what speaks up if the picture really stops.
-          if (!video.paused && video.readyState >= 2) return
+          // is what speaks up if the picture really stops. Readiness is not, for
+          // the same reason as in the watchdog: a demuxer that stops consuming
+          // bytes keeps readyState at 4 and never moves the clock.
+          const moved = video.currentTime - lastTsClock.current > 0.05
+          lastTsClock.current = video.currentTime
+          if (!video.paused && moved) return
           // A channel whose MPEG-TS carries a codec this browser cannot decode
           // (HEVC, for instance) is still served as HLS. The raw-TS failure used
           // to go straight to the "could not be tuned" card, so those channels
@@ -465,6 +473,15 @@ export function Player({
             hls?.destroy()
             hls = null
             void attach(srcAlt)
+            return
+          }
+          // Live channels carry two renditions and either one can 503 on its own:
+          // the spare failing must hand the tune back to the main one instead of
+          // ending it with a card while a working picture may be one step away.
+          if (isLive && usingAlt && src) {
+            hls?.destroy()
+            hls = null
+            void attach(src)
             return
           }
           // A manifest that 503s / 404s can be back a second later on a panel
@@ -585,8 +602,10 @@ export function Player({
       tuneRetries.current = 0
       stallRetunes.current = 0
       setBuffering(false)
-      // The stream recovered: drop any warning that is no longer true.
-      setError(clearTransientError)
+      // The stream recovered: drop any warning that is no longer true. A moved
+      // picture is the proof, so even a failure card left over from a rendition
+      // that has since been replaced must not stay over a channel that plays.
+      setError(null)
     }
     const onError = () => {
       // Ignore the empty-src blip while a source is being torn down.
@@ -688,8 +707,12 @@ export function Player({
         lastPosition = video.currentTime
         lastProgressAt = Date.now()
       }
-      // Paused on purpose or healthy playback: no stall warning.
-      if (video.paused || video.readyState >= 3 || progressed) {
+      // Paused on purpose, finished, or healthy playback: no stall warning.
+      // readyState is deliberately not part of this: a demuxer that loses sync
+      // (mpegts "sync_byte" warnings) leaves a full buffer behind while the clock
+      // stays put, and trusting readiness there hid the stall for ever instead of
+      // retuning it. A moving clock is the only proof that the picture is alive.
+      if (video.paused || video.ended || progressed) {
         lastProgressAt = Date.now()
         setError(clearTransientError)
         return

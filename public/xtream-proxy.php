@@ -107,23 +107,35 @@ function relay_live(string $target): void
         $forward[] = 'Range: ' . $_SERVER['HTTP_RANGE'];
     }
 
-    $ch = curl_init($target);
-    curl_setopt_array($ch, [
-        CURLOPT_HTTPHEADER => $forward,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_MAXREDIRS => 3,
-        CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_TIMEOUT => 0,
-        CURLOPT_LOW_SPEED_LIMIT => 1024,
-        CURLOPT_LOW_SPEED_TIME => MEDIA_PANEL_STALL_SECS,
-        CURLOPT_WRITEFUNCTION => static function ($handle, string $data): int {
-            echo $data;
-            flush();
-            return strlen($data);
-        },
-    ]);
-    curl_exec($ch);
-    curl_close($ch);
+    // The panel often answers an empty or slow first attempt and delivers on the
+    // next. Retry only while nothing has reached the player yet, so a stream that
+    // has started is never restarted mid-picture.
+    $sent = 0;
+    for ($attempt = 1; $attempt <= 4; $attempt++) {
+        $before = $sent;
+        $ch = curl_init($target);
+        curl_setopt_array($ch, [
+            CURLOPT_HTTPHEADER => $forward,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 3,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_LOW_SPEED_LIMIT => 1024,
+            CURLOPT_LOW_SPEED_TIME => MEDIA_PANEL_STALL_SECS,
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $data) use (&$sent): int {
+                echo $data;
+                flush();
+                $sent += strlen($data);
+                return strlen($data);
+            },
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+        if ($sent > 0 || $before > 0 || connection_aborted()) {
+            break;
+        }
+        usleep(500000);
+    }
 }
 
 /**

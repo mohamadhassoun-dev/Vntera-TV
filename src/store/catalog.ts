@@ -66,7 +66,16 @@ interface CacheMeta {
   seriesParts: number
 }
 
-const breathe = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+/**
+ * Hands a frame back between chunks of cache work so a visible page stays
+ * responsive. A hidden tab has no frames to protect, and browsers clamp its
+ * timers to about a second, which turned a cache read into a minute-long wait
+ * on exactly the page that was waiting for it.
+ */
+const breathe = () =>
+  document.visibilityState === 'hidden'
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = []
@@ -169,7 +178,17 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
 
     const run = async () => {
       const cached = await readCache(account)
-      if (cached) await warmSnapshot(cached)
+      // Warming the derived answers is a landing-page nicety, and it walks every
+      // movie in the library. Waiting for all of it before publishing a snapshot
+      // that is already in hand left a watch page without its title — and on the
+      // "Stream unavailable." card — for a minute on a busy or hidden tab. Bound
+      // the wait and let the rest of the warm pass continue in the background.
+      if (cached) {
+        await Promise.race([
+          warmSnapshot(cached),
+          new Promise<void>((resolve) => setTimeout(resolve, 1_500)),
+        ])
+      }
       if (cached && !opts.force) {
         set({ snapshot: cached, status: 'ready', progress: 100, phase: '' })
         // A failed/empty live-stream response must not be treated as a complete

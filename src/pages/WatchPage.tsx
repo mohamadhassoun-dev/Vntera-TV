@@ -26,6 +26,8 @@ export default function WatchPage() {
 
   const snapshot = useCatalog((s) => s.snapshot)
   const catalogStatus = useCatalog((s) => s.status)
+  const catalogProgress = useCatalog((s) => s.progress)
+  const catalogError = useCatalog((s) => s.error)
   const settings = useSettings()
   const saveProgress = useLibrary((s) => s.saveProgress)
   const markWatched = useLibrary((s) => s.markWatched)
@@ -58,15 +60,6 @@ export default function WatchPage() {
     if (snapshot || catalogStatus !== 'idle') return
     void useCatalog.getState().load()
   }, [snapshot, catalogStatus])
-
-  // A catalogue that never arrives must not leave the viewer on a spinner for
-  // ever, so the wait is bounded and the old message takes over after it.
-  const [waitedLong, setWaitedLong] = useState(false)
-  useEffect(() => {
-    if (snapshot) return
-    const timer = window.setTimeout(() => setWaitedLong(true), 60000)
-    return () => window.clearTimeout(timer)
-  }, [snapshot])
 
   const title = useMemo<Title | undefined>(() => {
     if (!snapshot) return undefined
@@ -278,7 +271,15 @@ export default function WatchPage() {
   }
 
   const editionOptions: EditionOption[] = []
-  const savedProgress = title ? progress[`${kind}:${title.id}`]?.progress ?? 0 : 0
+  // A series keeps one progress key for the whole title, so the position it holds
+  // belongs to the episode it was saved on. Applying it to any other episode
+  // seeked past that episode's end, which fired "ended" and auto-advanced through
+  // the following episodes without playing any of them.
+  const savedEntry = title ? progress[`${kind}:${title.id}`] : undefined
+  const savedMatch =
+    !!savedEntry &&
+    (kind !== 'series' || (savedEntry.season === season && savedEntry.episode === episode))
+  const savedProgress = savedMatch ? savedEntry.progress ?? 0 : 0
   const resumeAt = kind === 'live' || restart ? 0 : savedProgress
   const liveNow = nowPlaying(epg)
 
@@ -324,8 +325,17 @@ export default function WatchPage() {
   }, [setOfflinePlayback, title?.id])
 
   if (!title || !src) {
-    const loading =
-      !snapshot && catalogStatus !== 'error' && (catalogStatus === 'loading' || !waitedLong)
+    // The catalogue publishes live channels first and movies/series later, so a
+    // snapshot can exist while this title's section is still on its way, and a
+    // cache read can take a while on a busy browser. Readiness alone is therefore
+    // not proof the title is missing: only a finished build (progress 100) or a
+    // failed one is. Guessing early is what made "Stream unavailable." appear on
+    // a page that was still loading and then play anyway.
+    const catalogSettled =
+      (catalogStatus === 'ready' && catalogProgress >= 100) ||
+      catalogStatus === 'error' ||
+      (catalogStatus === 'ready' && !!catalogError)
+    const loading = !title && !catalogSettled
     return (
       <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
         <div className="flex flex-col items-center gap-3 text-center">
