@@ -71,7 +71,10 @@ export const useEpg = create<EpgStore>((set, get) => ({
       set({ cache, fullGuideLoaded: true, fullGuideBusy: false })
     } catch (err) {
       set({ fullGuideBusy: false })
-      toast(err instanceof Error ? err.message : 'Guide download failed', 'error')
+      // A library error's own message can be a parser string; the viewer gets a
+      // sentence instead.
+      console.warn('[epg] guide download failed', err)
+      toast('The TV guide could not be loaded. It will retry on its own.', 'error')
     }
   },
 }))

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Player, type EditionOption } from '../components/player/Player'
+import { Icon } from '../components/Icons'
 import { IntroPreroll } from '../components/player/IntroPreroll'
 import { useCatalog } from '../store/catalog'
 import { useDetails } from '../store/details'
@@ -413,7 +414,24 @@ export default function WatchPage() {
           {loading ? (
             <span className="h-10 w-10 animate-spin rounded-full border-2 border-white/25 border-t-crimson" />
           ) : null}
-          <p className="text-sm text-ink-mute">{loading ? 'Getting this title ready…' : 'Stream unavailable.'}</p>
+          <p className="text-sm text-ink-mute">
+            {loading ? 'Getting this title ready…' : 'This title could not be opened.'}
+          </p>
+          {loading ? null : (
+            <>
+              <p className="max-w-xs text-sm text-ink-mute">
+                It may have left the library. Try again, or pick something else to watch.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
+                  <Icon name="refresh" size={16} /> Try again
+                </button>
+                <Link to="/" className="btn btn-ghost" data-nav="true">
+                  Browse titles
+                </Link>
+              </div>
+            </>
+          )}
         </div>
       </div>
     )

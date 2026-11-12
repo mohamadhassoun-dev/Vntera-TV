@@ -425,7 +425,11 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
           else window.setTimeout(persist, 1200)
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unable to load the catalog.'
+        // Only our own client's messages are written for a viewer; anything else
+        // (a parser complaint, "Failed to fetch") is replaced with a sentence.
+        const message =
+          err instanceof PanelError ? err.message : 'The catalogue could not be loaded. Check your connection and try again.'
+        if (!(err instanceof PanelError)) console.warn('[catalog] load failed', err)
         const fallback = cached ?? get().snapshot
         set({
           status: fallback ? 'ready' : 'error',

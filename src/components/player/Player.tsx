@@ -545,10 +545,12 @@ export function Player({
           // that moves streams between edges, so retry before blaming the channel.
           if (retryFailedTune()) return
           if (onTuneFail?.()) return
+          // The library's error code (`bufferStalledError` and friends) is a
+          // debug value, not a sentence a viewer can use.
           setError(
             data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR
               ? 'Stream could not be reached. The provider may be offline or the connection limit was hit.'
-              : `Playback error: ${data.details}`,
+              : UNPLAYABLE_MESSAGE,
           )
           setBuffering(false)
         })
@@ -696,6 +698,15 @@ export function Player({
       // The same channel is also published as HLS: try that before telling the
       // viewer the channel is offline.
       if (isLive && srcAlt && !triedAlt.current) {
+        triedAlt.current = true
+        preferAlt.current = true
+        setReloadKey((key) => key + 1)
+        return
+      }
+      // A film or episode has a second URL (the panel's own, next to our relay).
+      // When the browser refuses the first outright, the other one sometimes
+      // plays, and one extra second beats a dead end.
+      if (!isLive && srcAlt && !triedAlt.current && (code === 3 || code === 4)) {
         triedAlt.current = true
         preferAlt.current = true
         setReloadKey((key) => key + 1)
@@ -1420,7 +1431,7 @@ export function Player({
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/40">
           <span className="h-10 w-10 animate-spin rounded-full border-2 border-white/25 border-t-crimson" />
           <span className="text-center text-[11px] font-bold uppercase tracking-widest text-ink-soft">
-            {isLive ? 'Tuning live stream' : slowBuffer ? 'Slow connection · still loading' : 'Loading'}
+            {isLive ? 'Loading live stream' : slowBuffer ? 'Slow connection · still loading' : 'Loading'}
           </span>
           {slowBuffer && !isLive ? (
             <span className="text-[10px] text-ink-mute">Your connection is slower than this file — give it a moment.</span>

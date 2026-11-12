@@ -271,7 +271,7 @@ async function request<T = any>(
       if (response.status === 403) {
         throw new PanelError('auth', 'Vntera rejected this subscription.', response.status)
       }
-      throw new PanelError('server', `Vntera error ${response.status}`, response.status)
+      throw new PanelError('server', 'Vntera is having trouble right now. Try again in a moment.', response.status)
     }
 
     if (streamed) return { data: streamed as T }
