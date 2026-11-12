@@ -87,7 +87,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * This covers the API only; video streams go straight to the proxy and are
  * never queued behind it, so playback is unaffected.
  */
-const MAX_PANEL_REQUESTS = 2
+const MAX_PANEL_REQUESTS = 3
 /**
  * The panel's limit is per second, not per connection: two in flight still drew
  * 429s whenever a finished category let the next one start immediately. Requests
