@@ -235,7 +235,18 @@ async function request<T = any>(
     let streamed: unknown[] | null = null
     try {
       if (options.streamArray && response.ok) {
-        streamed = await parseArrayBody(response)
+        streamed = await parseArrayBody(response.clone())
+        if (!streamed?.length) {
+          // A streamed read can come back empty when the edge buffers or breaks
+          // the body up oddly, and an empty line-up is a very different thing
+          // from an unreadable one. Read it whole before concluding anything.
+          try {
+            const whole = JSON.parse(await response.text()) as unknown
+            if (Array.isArray(whole) && whole.length) streamed = whole
+          } catch {
+            /* keep whatever the streamed read produced */
+          }
+        }
       } else {
         text = await response.text()
       }

@@ -172,10 +172,17 @@ export default function WatchPage() {
   // from the panel entirely. When the player runs out of options one short probe
   // says which it is: gone (a real "unavailable") or merely broken (retry).
   const [channelState, setChannelState] = useState<'idle' | 'checking' | 'gone'>('idle')
+  /** True only when the live list really was re-pulled for this channel. */
+  const [listRefreshed, setListRefreshed] = useState(false)
   /** Which source has already been looked up, so a broken channel settles. */
   const checkedSrc = useRef('')
   useEffect(() => {
+    // Only a real source change starts over. A refreshed list drops this channel's
+    // title, which empties `src`; resetting there would swap the explanation the
+    // viewer is reading for a generic card.
+    if (!src) return
     setChannelState('idle')
+    setListRefreshed(false)
     checkedSrc.current = ''
   }, [src, streamId])
 
@@ -205,10 +212,26 @@ export default function WatchPage() {
       return
     }
     setChannelState('gone')
-    // The list the viewer is browsing is stale: re-pull it so a channel that
-    // still exists is offered again without reloading the app.
-    void useCatalog.getState().refreshLive()
+    // The list the viewer is browsing is stale, so pull it now — forced, because
+    // a background refresh a minute ago must not make this screen claim a refresh
+    // that never happened for this channel.
+    try {
+      await useCatalog.getState().refreshLive({ force: true })
+    } catch (error) {
+      console.warn('[channel] live refresh failed', error)
+    }
+    // The screen may only say the list was refreshed when it demonstrably was:
+    // a real refresh replaces the line-up, so this channel is no longer in it.
+    const stillListed =
+      useCatalog.getState().snapshot?.channels.some((c) => Number(c.id) === Number(streamId)) ?? true
+    setListRefreshed(!stillListed)
   }, [kind, streamId])
+
+  // Stable identity: the player keeps this in its effect dependencies, so a new
+  // closure on every render made it tear the stream down and re-attach.
+  const handleFatalError = useCallback(() => {
+    void checkChannel()
+  }, [checkChannel])
 
   // A finished download for exactly this edition plays from the device; the
   // network is not touched at all, which is what makes it work with it off.
@@ -367,7 +390,12 @@ export default function WatchPage() {
     }
   }, [setOfflinePlayback, title?.id])
 
-  if (!title || !src) {
+  // A channel the panel no longer serves stays on its own screen: once the list
+  // is refreshed the title is gone from the catalogue, and falling through to the
+  // generic card would throw away the only explanation the viewer gets.
+  const liveChannelScreen = kind === 'live' && !localSrc && channelState !== 'idle'
+
+  if (!liveChannelScreen && (!title || !src)) {
     // The catalogue publishes live channels first and movies/series later, so a
     // snapshot can exist while this title's section is still on its way, and a
     // cache read can take a while on a busy browser. Readiness alone is therefore
@@ -391,7 +419,7 @@ export default function WatchPage() {
     )
   }
 
-  if (kind === 'live' && channelState !== 'idle') {
+  if (liveChannelScreen) {
     const gone = channelState === 'gone'
     return (
       <div className="fixed inset-0 z-[60] flex items-center justify-center bg-canvas px-4">
@@ -404,7 +432,9 @@ export default function WatchPage() {
           </h2>
           <p className="text-sm text-ink-mute">
             {gone
-              ? 'This channel is no longer in the provider line-up. Pick another one — the list has been refreshed.'
+              ? listRefreshed
+                ? 'This channel is no longer in the provider line-up. Pick another one — the list has been refreshed.'
+                : 'This channel is no longer in the provider line-up. Pick another one.'
               : 'The provider is deciding whether this channel is still on air.'}
           </p>
           <div className="mt-2 flex flex-col gap-2 sm:flex-row">
@@ -436,6 +466,10 @@ export default function WatchPage() {
     )
   }
 
+  // The two branches above return for every title-less case; this narrows the
+  // values for the player render below without changing behaviour.
+  if (!title || !src) return null
+
   return (
     <div className="fixed inset-0 z-[60] bg-black">
       {/* The film buffers underneath the brand sting, muted, so the sting never
@@ -465,7 +499,7 @@ export default function WatchPage() {
         liveProgramme={liveNow ? { title: liveNow.title, start: liveNow.start, end: liveNow.end } : undefined}
         onStall={kind === 'live' || localSrc ? undefined : dropToOneLighterEdition}
         onTuneFail={kind === 'live' && !localSrc ? tryAnotherLiveEntry : undefined}
-        onFatalError={kind === 'live' && !localSrc ? () => void checkChannel() : undefined}
+        onFatalError={kind === 'live' && !localSrc ? handleFatalError : undefined}
         muted={!introDone}
         onPlayingChange={handlePlayState}
       />

@@ -28,8 +28,12 @@ interface CatalogStore {
   offline: boolean
   load: (opts?: { force?: boolean; account?: string }) => Promise<void>
   refresh: () => Promise<void>
-  /** Re-pulls only the live line-up; the panel rotates channel ids. */
-  refreshLive: () => Promise<void>
+  /**
+   * Re-pulls only the live line-up; the panel rotates channel ids. Resolves true
+   * only when a new list was actually fetched and applied, so a caller never
+   * claims a refresh that its own throttle skipped.
+   */
+  refreshLive: (opts?: { force?: boolean }) => Promise<boolean>
   reset: () => void
 }
 
@@ -38,7 +42,7 @@ interface CatalogStore {
 const LIVE_STALE_MS = 15 * 60 * 1000
 /** Two refreshes closer together than this collapse into one. */
 const LIVE_REFRESH_THROTTLE_MS = 60 * 1000
-let liveInFlight: Promise<void> | null = null
+let liveInFlight: Promise<boolean> | null = null
 let lastLiveRefresh = 0
 const cacheKey = (account: string) => `catalog:v3:${account}`
 const legacyKey = (account: string) => `catalog:v2:${account}`
@@ -430,18 +434,32 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
     await get().load({ force: true, account: snapshot?.account })
   },
 
-  refreshLive: async () => {
+  refreshLive: async (opts = {}) => {
     const snapshot = get().snapshot
-    if (!snapshot) return
+    if (!snapshot) return false
     // A viewer flipping channels must not turn into a request storm against a
-    // panel that allows one stream at a time.
-    if (Date.now() - lastLiveRefresh < LIVE_REFRESH_THROTTLE_MS) return
-    if (liveInFlight) return liveInFlight
+    // panel that allows one stream at a time. A channel the panel no longer
+    // serves is the one case that overrides this (`force`).
+    if (!opts.force && Date.now() - lastLiveRefresh < LIVE_REFRESH_THROTTLE_MS) return false
+    // A forced refresh exists to answer "is this channel still listed?", so it
+    // never queues behind an earlier run: a stalled one would leave the viewer on
+    // a screen that can never say anything about the list.
+    if (liveInFlight && !opts.force) return liveInFlight
     lastLiveRefresh = Date.now()
-    const run = async () => {
+    const run = async (): Promise<boolean> => {
       try {
-        const live = await getLiveChannels()
-        if (!live.length) return
+        let live = await getLiveChannels()
+        if (!live.length) {
+          // The panel answers an empty list when its single stream slot is busy,
+          // which is exactly the state a failed channel leaves behind. One short
+          // wait usually gets the real line-up.
+          await new Promise((resolve) => setTimeout(resolve, 1_500))
+          live = await getLiveChannels()
+        }
+        if (!live.length) {
+          console.warn('[catalog] live refresh: provider returned no channels')
+          return false
+        }
         const built = await buildCatalogAsync({
           account: snapshot.account,
           live,
@@ -452,19 +470,39 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         const current = get().snapshot
         // Replace only the channel list: movies and series are unaffected, and
         // `builtAt` stays put so the six-hourly full refresh still runs.
-        if (!current || !built.channels.length) return
-        set({
-          snapshot: {
-            ...current,
-            channels: built.channels,
-            counts: { ...current.counts, channels: live.length },
-          },
-        })
-      } catch {
-        // A background refresh never disturbs what is already on screen.
+        if (!current || !built.channels.length) {
+          console.warn('[catalog] live refresh: nothing to apply', {
+            current: Boolean(current),
+            built: built.channels.length,
+            raw: live.length,
+          })
+          return false
+        }
+        const next: CatalogSnapshot = {
+          ...current,
+          channels: built.channels,
+          counts: { ...current.counts, channels: live.length },
+        }
+        set({ snapshot: next })
+        // Persist it too: a rotation that only lived in memory would come back
+        // with the stale line-up on the next visit.
+        void writeCache(current.account, next)
+        return true
+      } catch (error) {
+        // A background refresh never disturbs what is already on screen, but a
+        // silent failure here is what makes a screen claim a refresh it did not
+        // get, so it is reported.
+        console.warn('[catalog] live refresh failed', error)
+        return false
       }
     }
-    liveInFlight = run().finally(() => {
+    // The panel's line-up is a few megabytes over a streaming parse, and that
+    // parse can stall on a saturated connection. A timeout keeps a hung run from
+    // holding the slot for every later refresh.
+    const guard = new Promise<boolean>((resolve) => {
+      window.setTimeout(() => resolve(false), 30_000)
+    })
+    liveInFlight = Promise.race([run(), guard]).finally(() => {
       liveInFlight = null
     })
     return liveInFlight
