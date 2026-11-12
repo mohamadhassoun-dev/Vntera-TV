@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, useEffect } from 'react'
+import { Fragment, useMemo, useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EmptyState } from '../components/Feedback'
 import { PageSkeleton } from '../components/Skeleton'
@@ -286,20 +286,36 @@ export default function HomePage() {
     [heroPool, heroShown, rotationIndex],
   )
   const heroIds = useMemo(() => heroPicks.map((movie) => movie.id), [heroPicks])
+  // The catalogue keeps growing under the page for the first minute of a cold
+  // load, and each batch re-picked the hero: the poster changed under the viewer
+  // a few seconds after it appeared. The first line-up to reach the screen is
+  // pinned for the visit, and a new rotation releases it.
+  const [pinnedHeroIds, setPinnedHeroIds] = useState<number[]>([])
+  const pinnedRotation = useRef(rotationIndex)
+  useEffect(() => {
+    if (pinnedRotation.current === rotationIndex) return
+    pinnedRotation.current = rotationIndex
+    setPinnedHeroIds([])
+  }, [rotationIndex])
+  useEffect(() => {
+    if (pinnedHeroIds.length || !heroIds.length) return
+    setPinnedHeroIds(heroIds)
+  }, [heroIds, pinnedHeroIds.length])
+  const activeHeroIds = pinnedHeroIds.length ? pinnedHeroIds : heroIds
 
   // Remember this rotation's line-up so none of its movies returns in a later
   // one; an exhausted pool starts a fresh cycle instead of an empty hero.
   useEffect(() => {
-    if (!heroIds.length) {
+    if (!activeHeroIds.length) {
       if (heroPool.length) restartHero(rotationIndex)
       return
     }
-    recordHero(rotationIndex, heroIds)
-  }, [heroIds, heroPool.length, rotationIndex, recordHero, restartHero])
+    recordHero(rotationIndex, activeHeroIds)
+  }, [activeHeroIds, heroPool.length, rotationIndex, recordHero, restartHero])
 
   const rows = useMemo(
-    () => computeHomeRows(movies, weekIndex, rotationIndex, heroIds, catalogProgress < 100),
-    [movies, weekIndex, rotationIndex, heroIds, catalogProgress],
+    () => computeHomeRows(movies, weekIndex, rotationIndex, activeHeroIds, catalogProgress < 100),
+    [movies, weekIndex, rotationIndex, activeHeroIds, catalogProgress],
   )
   // IMDb is not a panel category: the row curates the catalog's top-rated
   // movies. It sits right under Top 10 in the requested order.
