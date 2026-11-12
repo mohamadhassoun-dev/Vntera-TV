@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, useEffect, useRef } from 'react'
+import { Fragment, useMemo, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EmptyState } from '../components/Feedback'
 import { PageSkeleton } from '../components/Skeleton'
@@ -32,7 +32,13 @@ import {
   utcRotationIndex,
   utcWeekIndex,
 } from '../lib/homeRotation'
-import { heroCandidatePool, selectHeroRotation } from '../lib/heroRotation'
+import {
+  heroCandidatePool,
+  pinHeroIds,
+  pinnedHeroIds,
+  selectHeroRotation,
+  type HeroPin,
+} from '../lib/heroRotation'
 import { collectionTitles } from '../lib/collections'
 import { musicChannelTitles } from '../lib/musicChannels'
 import { arabicChannelFamilies } from '../lib/arabicChannels'
@@ -288,20 +294,12 @@ export default function HomePage() {
   const heroIds = useMemo(() => heroPicks.map((movie) => movie.id), [heroPicks])
   // The catalogue keeps growing under the page for the first minute of a cold
   // load, and each batch re-picked the hero: the poster changed under the viewer
-  // a few seconds after it appeared. The first line-up to reach the screen is
-  // pinned for the visit, and a new rotation releases it.
-  const [pinnedHeroIds, setPinnedHeroIds] = useState<number[]>([])
-  const pinnedRotation = useRef(rotationIndex)
+  // a few seconds after it appeared. See lib/heroRotation for the rule.
+  const [heroPin, setHeroPin] = useState<HeroPin>({ ids: [], rotation: rotationIndex })
   useEffect(() => {
-    if (pinnedRotation.current === rotationIndex) return
-    pinnedRotation.current = rotationIndex
-    setPinnedHeroIds([])
-  }, [rotationIndex])
-  useEffect(() => {
-    if (pinnedHeroIds.length || !heroIds.length) return
-    setPinnedHeroIds(heroIds)
-  }, [heroIds, pinnedHeroIds.length])
-  const activeHeroIds = pinnedHeroIds.length ? pinnedHeroIds : heroIds
+    setHeroPin((current) => pinHeroIds(current, heroIds, rotationIndex))
+  }, [heroIds, rotationIndex])
+  const activeHeroIds = pinnedHeroIds(heroPin, heroIds, rotationIndex)
 
   // Remember this rotation's line-up so none of its movies returns in a later
   // one; an exhausted pool starts a fresh cycle instead of an empty hero.

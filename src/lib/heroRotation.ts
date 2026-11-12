@@ -60,6 +60,42 @@ export function heroCandidatePool(movies: readonly Title[]): Title[] {
     .map((entry) => entry.movie)
 }
 
+/** A line-up kept on screen for a visit, and the rotation it was chosen for. */
+export interface HeroPin {
+  ids: number[]
+  rotation: number
+}
+
+/**
+ * Keeps the first line-up that reached the screen while the catalogue is still
+ * arriving.
+ *
+ * A cold load publishes the library a batch at a time, and re-picking the hero on
+ * every batch swapped the poster out from under a viewer a few seconds after it
+ * appeared. The first non-empty line-up is therefore held for the visit; a new
+ * rotation releases it, and an empty candidate list leaves the pin alone.
+ */
+export function pinHeroIds(
+  current: HeroPin,
+  candidateIds: readonly number[],
+  rotationIndex: number,
+): HeroPin {
+  if (current.rotation !== rotationIndex) {
+    return { ids: [...candidateIds], rotation: rotationIndex }
+  }
+  if (current.ids.length || !candidateIds.length) return current
+  return { ids: [...candidateIds], rotation: rotationIndex }
+}
+
+/** The line-up to show: the pinned one for this rotation, else the fresh picks. */
+export function pinnedHeroIds(
+  pin: HeroPin,
+  candidateIds: number[],
+  rotationIndex: number,
+): number[] {
+  return pin.rotation === rotationIndex && pin.ids.length ? pin.ids : candidateIds
+}
+
 /**
  * The hero line-up for one rotation: the next `limit` candidates that no earlier
  * rotation has featured. Picks already recorded for the current rotation are not

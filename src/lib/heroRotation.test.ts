@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Title } from '../types'
-import { HERO_ROTATION_SIZE, heroCandidatePool, selectHeroRotation } from './heroRotation'
+import {
+  HERO_ROTATION_SIZE,
+  heroCandidatePool,
+  pinHeroIds,
+  pinnedHeroIds,
+  selectHeroRotation,
+} from './heroRotation'
 
 function movie(id: number, overrides: Partial<Title> = {}): Title {
   return {
@@ -93,6 +99,31 @@ describe('hero rotation', () => {
       history.push(...picks.map((title) => ({ id: title.id, rotation })))
     }
     expect(seen.size).toBe(30)
+  })
+
+  it('holds the first line-up while the catalogue keeps arriving', () => {
+    const empty = { ids: [], rotation: 7 }
+    const first = pinHeroIds(empty, [1, 2, 3], 7)
+    expect(first.ids).toEqual([1, 2, 3])
+
+    // A later batch produces a different pick; the screen must not change.
+    expect(pinHeroIds(first, [9, 8, 7], 7)).toBe(first)
+    expect(pinnedHeroIds(first, [9, 8, 7], 7)).toEqual([1, 2, 3])
+  })
+
+  it('releases the pin when the rotation rolls over', () => {
+    const pinned = pinHeroIds({ ids: [], rotation: 7 }, [1, 2, 3], 7)
+    const next = pinHeroIds(pinned, [4, 5, 6], 8)
+    expect(next.rotation).toBe(8)
+    expect(next.ids).toEqual([4, 5, 6])
+    expect(pinnedHeroIds(next, [4, 5, 6], 8)).toEqual([4, 5, 6])
+  })
+
+  it('shows the fresh picks until a line-up exists', () => {
+    const empty = { ids: [], rotation: 7 }
+    expect(pinnedHeroIds(empty, [], 7)).toEqual([])
+    expect(pinHeroIds(empty, [], 7)).toBe(empty)
+    expect(pinnedHeroIds({ ids: [], rotation: 6 }, [4, 5], 7)).toEqual([4, 5])
   })
 
   it('returns what is left when the pool runs dry', () => {
