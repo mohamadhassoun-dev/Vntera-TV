@@ -63,7 +63,7 @@ export default function WatchPage() {
     void useCatalog.getState().load()
   }, [snapshot, catalogStatus])
 
-  const title = useMemo<Title | undefined>(() => {
+  const catalogTitle = useMemo<Title | undefined>(() => {
     if (!snapshot) return undefined
     const pool = kind === 'live' ? snapshot.channels : kind === 'series' ? snapshot.series : snapshot.movies
     return pool.find((t) => t.id === numericId)
@@ -83,6 +83,73 @@ export default function WatchPage() {
 
   const currentSeason = seasons.find((s) => s.season === season)
   const currentEpisode = currentSeason?.episodes.find((e) => Number(e.episode_num) === episode)
+
+  const vodInfo = useDetails((s) => s.vod[numericId])
+  const loadVod = useDetails((s) => s.loadVod)
+  useEffect(() => {
+    if (kind === 'movie' && !catalogTitle) void loadVod(numericId)
+  }, [kind, numericId, catalogTitle, loadVod])
+
+  /**
+   * A link opened on a cold browser used to wait for the whole catalogue — two
+   * three-megabyte panel responses — just to learn this film's name. The panel
+   * answers for a single title in about a second, so a placeholder title built
+   * from that answer is enough to start the player.
+   */
+  const earlyTitle = useMemo<Title | undefined>(() => {
+    if (catalogTitle) return undefined
+    const base = {
+      kind: kind === 'series' ? ('series' as const) : ('movie' as const),
+      id: numericId,
+      key: `${kind}:${numericId}`,
+      genres: [] as string[],
+      cast: [] as string[],
+      languages: [] as string[],
+      editions: [] as Title['editions'],
+      categoryId: '',
+      categoryName: '',
+      addedAt: 0,
+      provider: 'other' as const,
+      hasArtwork: false,
+    }
+    if (kind === 'series') {
+      const info = (seriesInfo?.info ?? {}) as { name?: unknown; cover?: unknown }
+      const name = typeof info.name === 'string' ? info.name : ''
+      if (!name || !currentEpisode) return undefined
+      const cover = typeof info.cover === 'string' ? info.cover : undefined
+      return { ...base, name, cleanName: name, quality: 'SD' as const, poster: cover, hasArtwork: !!cover }
+    }
+    const data = vodInfo?.movie_data
+    if (!data || !data.stream_id) return undefined
+    const height = Number(vodInfo?.info?.video?.height ?? 0)
+    const quality: Title['quality'] = height >= 2000 ? '4K' : height >= 1000 ? 'FHD' : height >= 700 ? 'HD' : 'SD'
+    const name = data.name || `Title ${numericId}`
+    return {
+      ...base,
+      name,
+      cleanName: name,
+      quality,
+      year: data.year ? Number(data.year) || undefined : undefined,
+      poster: data.stream_icon,
+      hasArtwork: !!data.stream_icon,
+      editions: [
+        {
+          streamId: data.stream_id,
+          quality,
+          languages: [],
+          container: data.container_extension,
+          label: quality,
+          addedAt: 0,
+        },
+      ],
+    }
+  }, [catalogTitle, kind, numericId, seriesInfo, vodInfo, currentEpisode])
+
+  // Sticky: once play has started from the single-title answer, the full
+  // catalogue must not swap in a different edition mid-film and restart it.
+  const earlyRef = useRef<Title | undefined>(undefined)
+  if (!earlyRef.current && earlyTitle) earlyRef.current = earlyTitle
+  const title = catalogTitle ?? earlyRef.current
 
   const nextEpisode = useMemo(() => {
     if (kind !== 'series' || !seasons.length) return undefined

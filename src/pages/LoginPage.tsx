@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Icon } from '../components/Icons'
 import { PANEL_ORIGIN } from '../lib/config'
 import { focusFirstNav, isTVEnvironment } from '../lib/platform'
@@ -7,6 +7,15 @@ import { useAuth } from '../store/auth'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  // A signed-out viewer who opened a shared link lands here on that URL, so the
+  // path they asked for is the place to go back to once they are in. Sending
+  // everyone to the home screen made a deep link look broken.
+  const afterSignIn = useMemo(() => {
+    const path = `${location.pathname}${location.search}`
+    if (!path.startsWith('/') || path === '/' || path.startsWith('/login') || path.startsWith('/download')) return '/'
+    return path
+  }, [location.pathname, location.search])
   const login = useAuth((s) => s.login)
   const busy = useAuth((s) => s.busy)
   const error = useAuth((s) => s.error)
@@ -19,8 +28,8 @@ export default function LoginPage() {
   const onTV = useMemo(() => isTVEnvironment(), [])
 
   useEffect(() => {
-    if (status === 'authed') navigate('/', { replace: true })
-  }, [status, navigate])
+    if (status === 'authed') navigate(afterSignIn, { replace: true })
+  }, [status, navigate, afterSignIn])
 
   // A remote that lands on a page with nothing focused does nothing when the
   // first arrow is pressed. Put the ring on Account so the first key press
@@ -35,7 +44,7 @@ export default function LoginPage() {
     e.preventDefault()
     clearError()
     const ok = await login(username, password, PANEL_ORIGIN)
-    if (ok) navigate('/', { replace: true })
+    if (ok) navigate(afterSignIn, { replace: true })
   }
 
   return (
