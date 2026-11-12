@@ -37,7 +37,14 @@ const legacyKey = (account: string) => `catalog:v2:${account}`
 
 /** A fresh snapshot without live channels is incomplete and should be retried. */
 export function hasFreshLiveCatalog(snapshot: CatalogSnapshot | null, now = Date.now()): boolean {
-  return Boolean(snapshot && snapshot.channels.length > 0 && now - snapshot.builtAt < REFRESH_INTERVAL_MS)
+  return Boolean(
+    snapshot &&
+      snapshot.channels.length > 0 &&
+      // A snapshot saved while the provider's VOD list was empty must not pin
+      // Movies and Series to nothing for six hours.
+      (snapshot.movies.length > 0 || snapshot.series.length > 0) &&
+      now - snapshot.builtAt < REFRESH_INTERVAL_MS,
+  )
 }
 
 /**
