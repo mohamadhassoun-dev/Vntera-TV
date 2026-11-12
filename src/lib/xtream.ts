@@ -76,6 +76,47 @@ const MAX_RETRIES = 2
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * How many panel requests may be open at once.
+ *
+ * The catalogue is pulled category by category, and letting every pull run
+ * freely meant thirteen requests in flight at a peak — the panel answered 102 of
+ * 170 with 429 and the movie list never finished. Three at a time keeps the
+ * library arriving quickly without looking like an attack to the provider.
+ *
+ * This covers the API only; video streams go straight to the proxy and are
+ * never queued behind it, so playback is unaffected.
+ */
+const MAX_PANEL_REQUESTS = 2
+/**
+ * The panel's limit is per second, not per connection: two in flight still drew
+ * 429s whenever a finished category let the next one start immediately. Requests
+ * are spaced out instead of burst, which costs a few seconds across a whole
+ * library and stops the provider refusing them.
+ */
+const PANEL_START_GAP_MS = 350
+let openPanelRequests = 0
+let nextPanelStart = 0
+const panelQueue: Array<() => void> = []
+
+async function withPanelSlot<T>(run: () => Promise<T>): Promise<T> {
+  const now = Date.now()
+  const startAt = Math.max(now, nextPanelStart)
+  nextPanelStart = startAt + PANEL_START_GAP_MS
+  if (startAt > now) await sleep(startAt - now)
+  if (openPanelRequests >= MAX_PANEL_REQUESTS) {
+    await new Promise<void>((resolve) => panelQueue.push(resolve))
+  }
+  openPanelRequests += 1
+  try {
+    return await run()
+  } finally {
+    openPanelRequests -= 1
+    const next = panelQueue.shift()
+    if (next) next()
+  }
+}
+
 function panelQuery(params: QueryParams, withCredentials: boolean): string {
   const all = withCredentials && credentials ? { ...params, ...credentials } : params
   const search = new URLSearchParams()
@@ -289,6 +330,14 @@ async function request<T = any>(
     }
 
     if (!response.ok) {
+      // Rate limiting is the panel asking for a pause, not a failure: wait and
+      // try again instead of losing a whole category of the library.
+      if ((response.status === 429 || response.status === 503) && n < 3) {
+        const after = Number(response.headers.get('retry-after'))
+        const wait = Number.isFinite(after) && after > 0 ? Math.min(after * 1_000, 8_000) : 900 * (n + 1) * (n + 1)
+        await sleep(wait)
+        return attempt(n + 1)
+      }
       if (response.status >= 500 && retriable && n < MAX_RETRIES) {
         await sleep(RETRY_DELAY_MS * (n + 1))
         return attempt(n + 1)
@@ -302,6 +351,9 @@ async function request<T = any>(
       }
       if (response.status === 403) {
         throw new PanelError('auth', 'Vntera rejected this subscription.', response.status)
+      }
+      if (response.status === 429 || response.status === 503) {
+        throw new PanelError('server', 'Vntera is busy right now. Try again in a moment.', response.status)
       }
       throw new PanelError('server', 'Vntera is having trouble right now. Try again in a moment.', response.status)
     }
@@ -317,7 +369,7 @@ async function request<T = any>(
     }
   }
 
-  return attempt(0)
+  return withPanelSlot(() => attempt(0))
 }
 
 const api = {

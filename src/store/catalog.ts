@@ -204,18 +204,74 @@ async function writeCache(account: string, snapshot: CatalogSnapshot, complete =
 
 let inFlight: Promise<void> | null = null
 
-/** One cache write at a time, at most every fifteen seconds while loading. */
+/**
+ * Mid-load saves used to hand the whole snapshot to IndexedDB every fifteen
+ * seconds. On a 46k-title library that is the entire catalogue rewritten a dozen
+ * times while the viewer is browsing: megabytes of pointless writes and a
+ * stutter each time. Only the parts that are not stored yet are written now, so
+ * a save costs the titles that arrived since the last one.
+ */
 let persistTimer = 0
 let persistAt = 0
+/** Titles already in IndexedDB, counted as whole parts, for this load. */
+let storedMovies = 0
+let storedSeries = 0
+let storedChannelsFor = 0
+/** Saves queue behind each other: two overlapping writers would interleave parts. */
+let writeChain: Promise<void> = Promise.resolve()
+
+/** Stores every complete part that is not stored yet; returns the new count. */
+async function storeNewParts(
+  account: string,
+  kind: 'movies' | 'series',
+  items: Title[],
+  already: number,
+): Promise<number> {
+  const fullParts = Math.floor(items.length / PART_SIZE)
+  let stored = already
+  for (let part = Math.floor(already / PART_SIZE); part < fullParts; part += 1) {
+    const slice = items.slice(part * PART_SIZE, (part + 1) * PART_SIZE)
+    await idbSet(`${cacheKey(account)}:${kind}:${part}`, slice)
+    stored = (part + 1) * PART_SIZE
+    await breathe()
+  }
+  return stored
+}
+
 function schedulePersist(account: string): void {
   if (persistTimer) return
   const wait = Math.max(0, 15_000 - (Date.now() - persistAt))
   persistTimer = window.setTimeout(() => {
     persistTimer = 0
     persistAt = Date.now()
-    const current = useCatalog.getState().snapshot
-    if (!current) return
-    void writeCache(account, current).catch((error) => console.warn('[catalog] cache write failed', error))
+    writeChain = writeChain
+      .then(async () => {
+        const current = useCatalog.getState().snapshot
+        if (!current || current.account !== account) return
+        storedMovies = await storeNewParts(account, 'movies', current.movies, storedMovies)
+        storedSeries = await storeNewParts(account, 'series', current.series, storedSeries)
+        // Channels are one list and never grow in place, so they are written
+        // once per build rather than on every save.
+        if (storedChannelsFor !== current.builtAt && current.channels.length) {
+          await idbSet(`${cacheKey(account)}:channels`, current.channels)
+          storedChannelsFor = current.builtAt
+        }
+        if (!storedMovies && !storedSeries) return
+        // The reader only looks at the parts this meta names, so a library that
+        // is still growing reads back exactly what has been written.
+        const meta: CacheMeta = {
+          builtAt: current.builtAt,
+          account: current.account,
+          demo: current.demo,
+          categories: current.categories,
+          counts: { ...current.counts, movies: storedMovies, series: storedSeries },
+          movieParts: Math.floor(storedMovies / PART_SIZE),
+          seriesParts: Math.floor(storedSeries / PART_SIZE),
+          complete: false,
+        }
+        await idbSet(`${cacheKey(account)}:meta`, meta)
+      })
+      .catch((error) => console.warn('[catalog] cache write failed', error))
   }, wait)
 }
 
@@ -232,6 +288,10 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
   load: async (opts = {}) => {
     const account = opts.account ?? get().snapshot?.account ?? 'anonymous'
     if (inFlight) return inFlight
+    // A new load starts with nothing of its own stored yet; the parts already
+    // on disk from an earlier visit are still valid and are skipped by count.
+    storedMovies = 0
+    storedSeries = 0
 
     const run = async () => {
       const cached = await readCache(account)
@@ -320,6 +380,8 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         const seenSeriesIds = new Set<number>()
         const knownMovieKeys = new Set<string>()
         const knownSeriesKeys = new Set<string>()
+        /** The complete movie list has been indexed; slices must stop adding. */
+        let fullMoviesPulled = false
         const seedKnownMovies = () => {
           if (knownMovieKeys.size || !movies.length) return
           for (const title of movies) {
@@ -339,10 +401,10 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
           const batch = movieQueue
           movieQueue = []
           // The finished pull wins: never add a slice to a complete list.
-          if (!batch.length || vod.length) return
+          if (!batch.length || fullMoviesPulled) return
           void buildCatalogAsync({ account, live: [], vod: batch, seriesRaw: [], categories: catArg })
             .then((built) => {
-              if (vod.length) return
+              if (fullMoviesPulled) return
               for (const title of built.movies) {
                 if (knownMovieKeys.has(title.key)) continue
                 knownMovieKeys.add(title.key)
@@ -449,11 +511,13 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
                 (built) => {
                   // Never shrink the grid: by now the streamed batches may have
                   // put far more titles up than this starter slice holds.
-                  if (vod.length || movies.length > raw.length) return
-                  vod = raw
+                  if (fullMoviesPulled || movies.length > raw.length) return
+                  // Deliberately does not set `vod`: that flag means the whole
+                  // pull finished, and setting it here stopped every later
+                  // streamed batch from reaching the grid.
                   movies = built.movies
                   publish(45)
-                  set({ phase: `Showing ${vod.length.toLocaleString()} titles` })
+                  set({ phase: `Showing ${movies.length.toLocaleString()} titles` })
                 },
               )
             }, 120)
@@ -530,6 +594,9 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
               if (done % 3 === 0 || done === ids.length) {
                 set({ phase: `Loading ${label} · ${done}/${ids.length} categories` })
               }
+              // A breath between categories: the panel rate-limits a burst, and
+              // a tenth of a second costs nothing across a hundred categories.
+              await new Promise((resolve) => setTimeout(resolve, 250))
             }
           }
           await Promise.all([worker(), worker(), worker(), worker()])
@@ -556,6 +623,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
             // partial and the next launch tries again (the cache skips writes for
             // a snapshot that never saw a complete pull).
             if (!r.length) return
+            fullMoviesPulled = true
             vod = r
             const built = await buildCatalogAsync({ account, live: [], vod: r, seriesRaw: [], categories: catArg })
             if (!built.movies.length) return
@@ -639,7 +707,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         // titles for six hours, so it is kept on screen but not persisted and
         // the next launch tries the full pull again.
         const completeEnough =
-          vod.length > 0 || seriesRaw.length > 0 || movies.length + series.length > 5_000
+          fullMoviesPulled || seriesRaw.length > 0 || movies.length + series.length > 5_000
         if (finalSnapshot && completeEnough) {
           const persist = () => void writeCache(account, finalSnapshot, completeEnough)
           const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback
