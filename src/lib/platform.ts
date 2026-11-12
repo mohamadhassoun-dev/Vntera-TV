@@ -248,6 +248,8 @@ export function installSpatialNavigation(opts: SpatialOptions): () => void {
     // Only the 10-foot surface paints a focus ring; a tap on a phone must not.
     if (document.documentElement.dataset.formFactor !== 'tv') return
     const target = e.target as HTMLElement | null
+    // One ring at a time: adding one here without clearing the old left the
+    // previous card ringed as well, so the screen showed two focus rings.
     if (target?.matches?.(NAV_SELECTOR)) markFocused(target)
   }
 
@@ -308,7 +310,7 @@ export function installSpatialNavigation(opts: SpatialOptions): () => void {
     if (next) {
       event.preventDefault()
       next.focus({ preventScroll: false })
-      next.classList.add('is-focused')
+      markFocused(next)
       // Instant, not smooth: a smooth scroll paints over several frames and the
       // remote then feels like it lags behind every press.
       next.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' })
