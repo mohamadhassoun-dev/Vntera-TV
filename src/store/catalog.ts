@@ -233,6 +233,15 @@ let storedSeries = 0
 let storedChannelsFor = 0
 /** Saves queue behind each other: two overlapping writers would interleave parts. */
 let writeChain: Promise<void> = Promise.resolve()
+/**
+ * True once this load has finished and written the library as complete.
+ *
+ * A save scheduled while the library was still arriving could land after that
+ * final write and put `complete: false` back on the meta, so a finished 46k-title
+ * library was marked half-loaded and every later visit pulled all 159 categories
+ * again instead of opening from the cache.
+ */
+let libraryComplete = false
 
 /** Stores every complete part that is not stored yet; returns the new count. */
 async function storeNewParts(
@@ -262,6 +271,7 @@ function schedulePersist(account: string): void {
       .then(async () => {
         const current = useCatalog.getState().snapshot
         if (!current || current.account !== account) return
+        if (libraryComplete) return
         storedMovies = await storeNewParts(account, 'movies', current.movies, storedMovies)
         storedSeries = await storeNewParts(account, 'series', current.series, storedSeries)
         // Channels are one list and never grow in place, so they are written
@@ -306,6 +316,7 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
     // on disk from an earlier visit are still valid and are skipped by count.
     storedMovies = 0
     storedSeries = 0
+    libraryComplete = false
 
     const run = async () => {
       const cached = await readCache(account)
@@ -770,7 +781,19 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         const completeEnough =
           fullMoviesPulled || seriesRaw.length > 0 || movies.length + series.length > 5_000
         if (finalSnapshot && completeEnough) {
-          const persist = () => void writeCache(account, finalSnapshot, completeEnough)
+          // The library is done: no mid-load save may write the meta again, and
+          // this write goes last in the chain so it cannot be overwritten by one
+          // that was already queued.
+          libraryComplete = true
+          if (persistTimer) {
+            window.clearTimeout(persistTimer)
+            persistTimer = 0
+          }
+          const persist = () => {
+            writeChain = writeChain
+              .then(() => writeCache(account, finalSnapshot, true))
+              .catch((error) => console.warn('[catalog] cache write failed', error))
+          }
           const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback
           if (typeof idle === 'function') idle(persist)
           else window.setTimeout(persist, 1200)
