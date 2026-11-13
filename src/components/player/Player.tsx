@@ -181,6 +181,8 @@ export function Player({
   const lastSeekAt = useRef(0)
   /** Silent fall-backs allowed for the seek that is currently being served. */
   const seekFallbacks = useRef(0)
+  /** Position the viewer held before their most recent seek. */
+  const lastSeekFrom = useRef(0)
   /** True once this source has actually shown a frame, so a slow start is not a stall. */
   const hasPlayed = useRef(false)
   const recoveryTried = useRef(false)
@@ -797,9 +799,8 @@ export function Player({
         seekFallbacks.current += 1
         truncations.current = 0
         resumeAfterRecovery.current = 0
-        const ranges = video.buffered
-        const safe = ranges.length ? Math.max(0, ranges.end(ranges.length - 1) - 1.5) : Math.max(0, watched - 2)
-        if (Number.isFinite(safe) && safe > 0) video.currentTime = safe
+        const from = lastSeekFrom.current
+        if (Number.isFinite(from) && from > 0) video.currentTime = from
         setNotice(null)
         return
       }
@@ -1338,6 +1339,11 @@ export function Player({
   const seekTo = (clientX: number, clientY: number, element: HTMLElement) => {
     lastSeekAt.current = Date.now()
     seekFallbacks.current = 0
+    // Where the viewer was before this seek. Falling back means returning here,
+    // never to the last buffered second: a tail range the browser already holds
+    // sits near the end of the film, which threw a viewer who asked for 14:17
+    // into the closing credits.
+    lastSeekFrom.current = videoRef.current?.currentTime ?? 0
     const ratio = trackRatio(
       { x: clientX, y: clientY },
       element.getBoundingClientRect(),
