@@ -5,77 +5,27 @@
  * stop: the element pins `currentTime` to the full `duration`, reports the whole
  * timeline as buffered, and fires `ended`. Every visible symptom of that comes from
  * trusting the report — the bar slid to the far end of a film that was still
- * playing, a press on the track could ask for the last instant and look like the
- * film finishing, and playback rescued from a saved position never learned its own
- * progress because only the opening half minute was ever accepted as a start.
+ * playing, and playback rescued from a saved position never learned its own progress
+ * because only the opening half minute was ever accepted as a start.
+ *
+ * A move the viewer makes — a press on the track, a skip — is not a report at all:
+ * the player credits it as progress where it happens, so a press at the far right
+ * is judged like any other position and the end that follows is the viewer's own.
  *
  * These rules live here rather than inside the component so they can be checked
  * without a decoder, a panel, or a person watching.
  */
 
 /** How near the end counts as the end: a stop further back than this is short. */
-export const END_MARGIN_S = 60
-
-/** The three numbers the end-of-film rules are decided from. */
-export interface ProgressPoint {
-  /** `currentTime` this sample reports. */
-  at: number
-  /** Last known real duration, 0 before metadata arrives. */
-  duration: number
-  /** Furthest position playback has genuinely reached on this source. */
-  furthest: number
-}
-
-/** One `timeupdate`'s worth of state. */
-export interface ProgressSample extends ProgressPoint {
-  /** Position last shown, so half-second renders can be skipped. */
-  lastPushed: number
-}
-
-export interface ProgressUpdate {
-  /** Furthest real position after this sample; never moves on a fake end. */
-  furthest: number
-  /** Position to show on the bar, or null to leave it where it was. */
-  publish: number | null
-}
-
-/**
- * True when a sample sits at the very end of a film whose playback never got
- * anywhere near it: the end of the delivered bytes, not a place the viewer went.
- */
-export function isPinnedEndSample({ at, duration, furthest }: ProgressPoint): boolean {
-  return duration > END_MARGIN_S && at >= duration - 1 && furthest < duration - END_MARGIN_S
-}
-
-/**
- * Furthest real position after a sample. Only a normal step counts as progress.
- * The first sample counts wherever it is, because a film continued from a saved
- * position starts minutes in; reading only the first 30 s left every resumed film
- * at 0, which turned each later stop into a film the player believed was over.
- */
-export function advanceFurthest({ at, duration, furthest }: ProgressPoint): number {
-  if (!(at > 0) || isPinnedEndSample({ at, duration, furthest })) return furthest
-  // Before the duration is known there is no way to tell a real start from a jump
-  // to the end, so the opening half minute is still all that is trusted there.
-  if (furthest === 0) return duration > 0 || at < 30 ? at : furthest
-  const step = at - furthest
-  return step > 0 && step < 10 ? at : furthest
-}
-
-/** What to remember and what to show for one `timeupdate`. */
-export function readProgressSample(sample: ProgressSample): ProgressUpdate {
-  const furthest = advanceFurthest(sample)
-  if (isPinnedEndSample(sample)) return { furthest, publish: null }
-  // Labels show whole seconds, so half-second renders are wasted work.
-  if (Math.abs(sample.at - sample.lastPushed) < 0.5) return { furthest, publish: null }
-  return { furthest, publish: sample.at }
-}
+const END_MARGIN_S = 60
+/** A step longer than this is a jump, not playback, so it teaches nothing. */
+const STEP_S = 10
 
 /** A position inside the film — never its last instant, which reads as the end. */
-export function clampPosition(seconds: number, duration: number): number {
+function clampPosition(seconds: number, duration: number): number {
   if (!Number.isFinite(seconds)) return 0
   if (!(duration > 0)) return Math.max(0, seconds)
-  return Math.min(Math.max(0, seconds), Math.max(0, duration - 1))
+  return Math.min(Math.max(0, seconds), duration - 1)
 }
 
 /**
@@ -84,12 +34,54 @@ export function clampPosition(seconds: number, duration: number): number {
  * so a tap on the bar looked like the film finishing.
  */
 export function seekTarget(ratio: number, duration: number): number {
-  return clampPosition(Number.isFinite(ratio) ? ratio * duration : 0, duration)
+  return clampPosition(ratio * duration, duration)
 }
 
-/** The delivered response stopped short of the film's own length. */
-export function stoppedShort(watched: number, duration: number): boolean {
-  return duration > 0 && watched > 0 && watched < duration - END_MARGIN_S
+/**
+ * Where an element that ended early is put back: the position its viewer left,
+ * always inside the film so the restore does not end it again at once.
+ */
+export function resumeTarget(from: number, duration: number): number {
+  return clampPosition(from, duration)
+}
+
+/** One `timeupdate`'s worth of state. */
+interface ProgressSample {
+  /** `currentTime` this sample reports. */
+  at: number
+  /** Last known real duration, 0 before metadata arrives. */
+  duration: number
+  /** Furthest position playback has genuinely reached on this source. */
+  furthest: number
+  /** Position last shown, so half-second renders can be skipped. */
+  lastPushed: number
+}
+
+interface ProgressUpdate {
+  /** Furthest real position after this sample; never moves on a fake end. */
+  furthest: number
+  /** Position to show on the bar, or null to leave it where it was. */
+  publish: number | null
+}
+
+/** What to remember and what to show for one `timeupdate`. */
+export function readProgressSample({ at, duration, furthest, lastPushed }: ProgressSample): ProgressUpdate {
+  // A sample pinned to the duration while playback is far behind it is the end of
+  // the delivered bytes, not a place the viewer reached: the bar must not follow
+  // it, and it must never teach the player that the film was watched to its end.
+  const pinned = at >= duration - 1 && furthest < duration - END_MARGIN_S
+  // A normal step is progress. The first sample counts wherever it is, because a
+  // film continued from a saved position starts minutes in; before the duration is
+  // known only the opening half minute is trusted, since a jump cannot then be told
+  // apart from a start. Deliberate moves are already credited by the player, so
+  // they arrive here as a step of zero.
+  const step = at - furthest
+  const reached = at > 0 && !pinned && (furthest > 0 ? step > 0 && step < STEP_S : duration > 0 || at < 30)
+  return {
+    furthest: reached ? at : furthest,
+    // Labels show whole seconds, so half-second renders are wasted work.
+    publish: !pinned && Math.abs(at - lastPushed) >= 0.5 ? at : null,
+  }
 }
 
 /** The viewer really did play the film through to its end. */
@@ -97,14 +89,10 @@ export function finishedProperly(watched: number, duration: number): boolean {
   return duration > 0 && watched >= duration - END_MARGIN_S
 }
 
-/**
- * What `ended` means for this film. `restore` puts the viewer back where the
- * pressed seek left off, `reconnect` re-attaches after a short body, and
- * `finish` shows the finished card.
- */
-export type EndAction = 'restore' | 'reconnect' | 'finish'
+/** What `ended` means for this film: show the card, restore, or ask again. */
+type EndAction = 'finish' | 'restore' | 'reconnect' | 'unplayed'
 
-export interface EndOfFilm {
+interface EndOfFilm {
   /** Best known real progress on this source. */
   watched: number
   /** Last known real duration. */
@@ -115,37 +103,21 @@ export interface EndOfFilm {
   absorbed: number
   /** Reconnects already spent on this film. */
   retries: number
+  /** The source has shown at least one frame, so a finish is possible. */
+  played: boolean
 }
 
 /**
  * The branch `ended` takes. A finished card is the last resort only after a short
- * body has been given every chance, so a truncated stream can never masquerade as
- * a finish, and a film that was watched to its end is never swallowed by the guard.
+ * body has been given every chance, so a truncated stream can never masquerade as a
+ * finish, and a film that was watched to its end is never swallowed by the guard.
  */
-export function endOfFilmAction({ watched, duration, afterSeek, absorbed, retries }: EndOfFilm): EndAction {
-  if (!stoppedShort(watched, duration)) return 'finish'
+export function endOfFilmAction({ watched, duration, afterSeek, absorbed, retries, played }: EndOfFilm): EndAction {
+  // A source that ended without ever showing a frame has no progress to judge the
+  // end against and nowhere to resume, so "finished" and "restore" are both lies:
+  // it is asked again on its own budget, then reported as unplayable.
+  if (!played && !(watched > 0)) return 'unplayed'
+  if (finishedProperly(watched, duration)) return 'finish'
   if (afterSeek && absorbed < 2) return 'restore'
   return retries < 12 ? 'reconnect' : 'finish'
-}
-
-/** Just enough of an element to put an ended one back on its feet. */
-export interface ResumableElement {
-  currentTime: number
-}
-
-/**
- * Bring an element that has already fired `ended` back to `from` and start it.
- * Setting the time alone left it paused on its last frame with nothing to say why,
- * which is what a seek that landed on a short byte range used to do.
- */
-export function resumeAfterShortRange<T extends ResumableElement>(
-  el: T,
-  from: number,
-  duration: number,
-  play: (el: T) => void,
-): number {
-  const target = clampPosition(from, duration)
-  el.currentTime = target
-  play(el)
-  return target
 }

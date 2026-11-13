@@ -14,7 +14,7 @@ import {
   endOfFilmAction,
   finishedProperly,
   readProgressSample,
-  resumeAfterShortRange,
+  resumeTarget,
   seekTarget,
 } from '../../lib/playbackPosition'
 import { trackAxis, trackRatio } from '../../lib/seek'
@@ -893,6 +893,7 @@ export function Player({
         afterSeek,
         absorbed: seek.absorbed,
         retries: truncations.current,
+        played: hasPlayed.current,
       })
       if (action === 'restore') {
         seek.absorbed += 1
@@ -918,7 +919,8 @@ export function Player({
           // Step back to where the film left off and keep playing: the element
           // had already ended, so restoring the second alone parked the picture
           // on a still frame with nothing to say why.
-          resumeAfterShortRange(el, from, duration, startPlayback)
+          el.currentTime = resumeTarget(from, duration)
+          startPlayback(el)
           setNotice(null)
         }, 8_000)
         return
@@ -937,6 +939,23 @@ export function Player({
         // account recovers from a pause, not from an immediate second request.
         const wait = Math.min(8000, 1_500 * truncations.current)
         window.setTimeout(() => setReloadKey((key) => key + 1), wait)
+        return
+      }
+      if (action === 'unplayed') {
+        // The source ended before it ever showed a frame, so there is no position
+        // to resume and nothing to call finished. Re-ask on the same bounded ladder
+        // a first-frame failure uses, then say it could not be played: the budget
+        // survives a re-attach, so a broken source cannot loop here.
+        if (vodRetries.current < VOD_RETRY_DELAYS.length) {
+          const delay = VOD_RETRY_DELAYS[vodRetries.current]
+          vodRetries.current += 1
+          setNotice('This video stopped before it started. Retrying…')
+          window.setTimeout(() => setReloadKey((key) => key + 1), delay)
+          return
+        }
+        setBuffering(false)
+        setNotice(null)
+        setError(UNPLAYABLE_MESSAGE)
         return
       }
       setPlaying(false)
@@ -1320,7 +1339,11 @@ export function Player({
     // Before the first metadata arrives duration reads 0, and clamping to
     // `duration - 1` then sent every skip back to the start of the film.
     const limit = Number.isFinite(video.duration) && video.duration > 0 ? video.duration - 1 : Number.POSITIVE_INFINITY
-    video.currentTime = Math.max(0, Math.min(limit, video.currentTime + delta))
+    const to = Math.max(0, Math.min(limit, video.currentTime + delta))
+    // A skip is also the viewer's own move: a ten-second step is not a normal one,
+    // and a furthest left behind it would never catch up again.
+    furthest.current = Math.max(furthest.current, to)
+    video.currentTime = to
     reveal()
   }, [isLive, liveWindow, reveal])
 
@@ -1494,6 +1517,11 @@ export function Player({
   const retry = () => {
     setError(null)
     setBuffering(true)
+    // The viewer asked, so the source gets its start-up budget back: a panel that
+    // was rate-limiting the account has had time to recover. Automatic retries
+    // stay capped, so this cannot turn into a reload loop on its own.
+    vodRetries.current = 0
+    firstFrameRetries.current = 0
     setReloadKey((key) => key + 1)
   }
 
@@ -1532,23 +1560,30 @@ export function Player({
     // Falling back means returning here, never to the last buffered second: a
     // tail range the browser already holds sits near the end of the film, which
     // threw a viewer who asked for 14:17 into the closing credits.
-    seekIntent.current = { at: Date.now(), from: videoRef.current?.currentTime ?? 0, absorbed: 0 }
     const ratio = trackRatio(
       { x: clientX, y: clientY },
       element.getBoundingClientRect(),
       trackAxis(rotated),
     )
     const video = videoRef.current
+    // A press at the very end of the track asked for `duration` itself, which the
+    // element answers with "ended": a tap on the bar looked like the film
+    // finishing. One second short of it plays out to the end instead.
+    const to = !isLive && duration ? seekTarget(ratio, duration) : null
+    seekIntent.current = { at: Date.now(), from: video?.currentTime ?? 0, absorbed: 0 }
     if (!video) return
     if (isLive) {
       if (!liveWindow) return
       video.currentTime = liveWindow.start + ratio * (liveWindow.end - liveWindow.start)
       return
     }
-    // A press at the very end of the track asked for `duration` itself, which the
-    // element answers with "ended": a tap on the bar looked like the film
-    // finishing. One second short of it plays out to the end instead.
-    if (duration) video.currentTime = seekTarget(ratio, duration)
+    if (to === null) return
+    // The press is the viewer's own move, so the position they asked for is real
+    // progress the moment they ask: a seek is a jump of minutes, and left to the
+    // step rule the landing would be discarded, the bar would stay on the old
+    // second, and the end guard would undo the press.
+    furthest.current = Math.max(furthest.current, to)
+    video.currentTime = to
   }
 
   const liveEdge = liveWindow?.end ?? 0
