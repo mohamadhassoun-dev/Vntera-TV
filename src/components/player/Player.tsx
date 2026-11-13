@@ -10,6 +10,13 @@ import { canCastVideo, isNativeShell, startCast } from '../../lib/platform'
 import { releaseOrientation, rotateLandscape, type RotateMode } from '../../lib/orientation'
 import { pictureTurned } from '../../lib/playerLayout'
 import { BUFFER_FLOOR_S, bufferTargetFor, bufferedAhead, hlsBufferProfile } from '../../lib/playbackBuffer'
+import {
+  endOfFilmAction,
+  finishedProperly,
+  readProgressSample,
+  resumeAfterShortRange,
+  seekTarget,
+} from '../../lib/playbackPosition'
 import { trackAxis, trackRatio } from '../../lib/seek'
 import { useWakeLock } from '../../lib/hooks'
 import { useSettings } from '../../store/settings'
@@ -713,20 +720,20 @@ export function Player({
     const onTime = () => {
       const at = video.currentTime
       clockAt.current = at
-      // A truncated file pins currentTime to the duration and fires timeupdate on
-      // the way, so only a normal step counts as progress. Without this, the jump
-      // itself taught the end-of-file check that the viewer had watched it all.
-      const step = at - furthest.current
-      // Only a normal step counts, and the first sample only when playback has
-      // really begun: a file that jumps to its end before the first frame must
-      // not teach this that the viewer watched it all.
-      const seeded = furthest.current === 0 ? at < 30 : step > 0 && step < 10
-      if (seeded) furthest.current = at
-      // Labels show whole seconds, so half-second renders are wasted work.
-      const next = video.currentTime
-      if (Math.abs(next - lastPushedTime.current) < 0.5) return
-      lastPushedTime.current = next
-      setCurrent(next)
+      // A file whose response stops short pins currentTime to the full duration
+      // when it ends. Telling that apart from a real finish — and keeping the bar
+      // where the viewer actually is — is `playbackPosition`'s job, so the rules
+      // can be checked without a decoder, a panel or a person watching.
+      const sample = readProgressSample({
+        at,
+        duration: durationAt.current,
+        furthest: furthest.current,
+        lastPushed: lastPushedTime.current,
+      })
+      furthest.current = sample.furthest
+      if (sample.publish === null) return
+      lastPushedTime.current = sample.publish
+      setCurrent(sample.publish)
     }
     const onDur = () => {
       if (Number.isFinite(video.duration) && video.duration > 0) durationAt.current = video.duration
@@ -875,10 +882,19 @@ export function Player({
       // short body within the seek's own window is absorbed silently: the film
       // returns to the second it left from, twice at most, and the reconnect
       // path below only sees what survives that.
-      const shortBody = duration > 0 && watched > 0 && watched < duration - 60
       const seek = seekIntent.current
       const afterSeek = Date.now() - seek.at < 30_000
-      if (shortBody && afterSeek && seek.absorbed < 2) {
+      // Which branch runs is decided in playbackPosition.ts, so the tests run the
+      // same rule the player does: a truncated body must not read as a finish, and
+      // a film watched to its end must not be swallowed by the guard.
+      const action = endOfFilmAction({
+        watched,
+        duration,
+        afterSeek,
+        absorbed: seek.absorbed,
+        retries: truncations.current,
+      })
+      if (action === 'restore') {
         seek.absorbed += 1
         truncations.current = 0
         resumeAfterRecovery.current = 0
@@ -899,12 +915,15 @@ export function Player({
           if (el.currentTime > stoppedAt + 1) return
           truncations.current = 0
           resumeAfterRecovery.current = 0
-          if (from > 0) el.currentTime = from
+          // Step back to where the film left off and keep playing: the element
+          // had already ended, so restoring the second alone parked the picture
+          // on a still frame with nothing to say why.
+          resumeAfterShortRange(el, from, duration, startPlayback)
           setNotice(null)
         }, 8_000)
         return
       }
-      if (shortBody && truncations.current < 12) {
+      if (action === 'reconnect') {
         truncations.current += 1
         // Resume where the picture actually stopped. Only a repeated end at the
         // same place (a damaged stretch, not a slow panel) steps forward, so a
@@ -925,7 +944,7 @@ export function Player({
       setShowControls(true)
       // Autoplay only when the viewer really reached the end. A file that ended
       // early must never carry them into the next episode on its own.
-      const reachedEnd = duration > 0 && watched >= duration - 60
+      const reachedEnd = finishedProperly(watched, duration)
       if (settings.autoplayNext && onNext && reachedEnd) onNext()
     }
     const onVolume = () => {
@@ -1526,7 +1545,10 @@ export function Player({
       video.currentTime = liveWindow.start + ratio * (liveWindow.end - liveWindow.start)
       return
     }
-    if (duration) video.currentTime = ratio * duration
+    // A press at the very end of the track asked for `duration` itself, which the
+    // element answers with "ended": a tap on the bar looked like the film
+    // finishing. One second short of it plays out to the end instead.
+    if (duration) video.currentTime = seekTarget(ratio, duration)
   }
 
   const liveEdge = liveWindow?.end ?? 0
