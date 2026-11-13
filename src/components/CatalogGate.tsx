@@ -10,9 +10,9 @@ import { useCatalog } from '../store/catalog'
  * Popular, Collections and the title page all drew their empty states instead —
  * "nothing here" for a catalogue that simply could not be fetched.
  *
- * Only the case with no snapshot at all is caught: once anything is on disk the
- * viewer keeps browsing it (see the fallback in the store's load), and the
- * "some sections failed" note covers the rest.
+ * Only the case with no snapshot at all is caught. Once anything is on disk the
+ * viewer keeps browsing it — see the fallback in the store's load, which keeps a
+ * half-finished library and finishes the sweep rather than throwing it away.
  */
 export function CatalogGate({ title, children }: { title: string; children: ReactNode }) {
   const snapshot = useCatalog((s) => s.snapshot)
