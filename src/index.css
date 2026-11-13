@@ -645,6 +645,11 @@
   }
 }
 
+@keyframes fadeout {
+  0%, 55% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 @keyframes shimmer {
   0% {
     background-position: 120% 0;

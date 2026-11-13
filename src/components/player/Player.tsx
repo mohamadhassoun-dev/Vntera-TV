@@ -201,6 +201,7 @@ export function Player({
   const retuneTimer = useRef<number | null>(null)
   /** When the picture was last tapped, so two taps in the middle pause or play. */
   const lastTap = useRef(0)
+  const [skipFlash, setSkipFlash] = useState<{ side: 'left' | 'right'; key: number } | null>(null)
   /**
    * The player paused playback itself to rebuild the forward buffer. The viewer
    * did not ask for this, so it must not look like a pause: no controls, just
@@ -1595,7 +1596,9 @@ export function Player({
           const spot = box.width > 0 ? (event.clientX - box.left) / box.width : 0.5
           if (spot < 1 / 3 || spot > 2 / 3) {
             setMenu('none')
-            seekBy(spot < 1 / 3 ? -10 : 10)
+            const back = spot < 1 / 3
+            seekBy(back ? -10 : 10)
+            setSkipFlash({ side: back ? 'left' : 'right', key: Date.now() })
             return
           }
           if (!showControls) {
@@ -1629,6 +1632,18 @@ export function Player({
           className="pointer-events-none absolute left-1/2 top-3 z-40 w-[min(92%,26rem)] -translate-x-1/2 rounded-[4px] border border-crimson/40 bg-black/85 px-3 py-2 text-center text-[12px] leading-snug text-white shadow-lg"
         >
           {notice}
+        </div>
+      ) : null}
+
+      {/* a double-tap skip: a brief -10s / +10s badge on the tapped side */}
+      {skipFlash && !isLive ? (
+        <div
+          key={skipFlash.key}
+          aria-hidden="true"
+          className={`pointer-events-none absolute top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-1 rounded-full bg-black/55 px-4 py-3 text-[13px] font-bold text-white animate-[fadeout_0.7s_ease-out_forwards] ${skipFlash.side === 'left' ? 'left-[16%]' : 'right-[16%]'}`}
+          onAnimationEnd={() => setSkipFlash(null)}
+        >
+          <span>{skipFlash.side === 'left' ? '−10s' : '+10s'}</span>
         </div>
       ) : null}
 
