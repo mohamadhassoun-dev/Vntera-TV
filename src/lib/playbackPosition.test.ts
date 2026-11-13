@@ -79,6 +79,38 @@ describe('a press on the progress track', () => {
     expect(Math.max(...nearEnd.shown)).toBe(FILM - 1)
     expect(finishedProperly(nearEnd.furthest, FILM)).toBe(true)
   })
+
+  it('counts the sample that lands on the position the press asked for as progress', () => {
+    // The far right of the track asks for the last second, which sits inside the
+    // range the pin rule throws away. Credited only by the press itself, the landing
+    // read as a fake end whenever that credit was behind it: the bar stayed on the
+    // old second and the end guard restored the film eight seconds later.
+    const asked = seekTarget(1, FILM)
+    const sample = readProgressSample({ at: FILM - 1, duration: FILM, furthest: 3, lastPushed: 3, asked })
+    expect(sample.publish).toBe(FILM - 1)
+    expect(sample.furthest).toBe(FILM - 1)
+    expect(finishedProperly(sample.furthest, FILM)).toBe(true)
+
+    // A landing a fraction short of the ask is the same answer, and it never moves
+    // what the player remembers as progress backwards.
+    const short = readProgressSample({ at: FILM - 1.4, duration: FILM, furthest: FILM - 1, lastPushed: 3, asked })
+    expect(short.publish).toBe(FILM - 1.4)
+    expect(short.furthest).toBe(FILM - 1)
+  })
+
+  it('still distrusts a pinned end that the press did not ask for', () => {
+    // A short body on a press mid-film: the pinned end is the end of the delivered
+    // bytes, not where the viewer asked to be, so the restore is kept.
+    const asked = seekTarget(0.5, FILM)
+    const pinned = readProgressSample({ at: FILM, duration: FILM, furthest: asked, lastPushed: asked, asked })
+    expect(pinned.publish).toBeNull()
+    expect(pinned.furthest).toBe(asked)
+    expect(
+      endOfFilmAction({ watched: pinned.furthest, duration: FILM, afterSeek: true, absorbed: 0, retries: 0, played: true }),
+    ).toBe('restore')
+    // Once no press is outstanding, the pinned end is a fake end again.
+    expect(readProgressSample({ at: FILM - 1, duration: FILM, furthest: 100, lastPushed: 100, asked: null }).publish).toBeNull()
+  })
 })
 
 describe('a sample pinned to the duration while the film is still mid-play', () => {

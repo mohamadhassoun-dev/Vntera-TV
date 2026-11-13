@@ -9,8 +9,10 @@
  * because only the opening half minute was ever accepted as a start.
  *
  * A move the viewer makes — a press on the track, a skip — is not a report at all:
- * the player credits it as progress where it happens, so a press at the far right
- * is judged like any other position and the end that follows is the viewer's own.
+ * the player credits it as progress where it happens, and the sample that lands on
+ * the position it asked for is recognised as that press being served, so a press at
+ * the far right is judged like any other position and the end that follows is the
+ * viewer's own.
  *
  * These rules live here rather than inside the component so they can be checked
  * without a decoder, a panel, or a person watching.
@@ -20,6 +22,8 @@
 const END_MARGIN_S = 60
 /** A step longer than this is a jump, not playback, so it teaches nothing. */
 const STEP_S = 10
+/** How near the position a press asked for still counts as that press landing. */
+const PRESS_LANDING_S = 3
 
 /** A position inside the film — never its last instant, which reads as the end. */
 function clampPosition(seconds: number, duration: number): number {
@@ -55,6 +59,11 @@ interface ProgressSample {
   furthest: number
   /** Position last shown, so half-second renders can be skipped. */
   lastPushed: number
+  /**
+   * The position the viewer's own press asked for, while that press is still
+   * waiting to be answered; null when no press is outstanding.
+   */
+  asked?: number | null
 }
 
 interface ProgressUpdate {
@@ -65,20 +74,34 @@ interface ProgressUpdate {
 }
 
 /** What to remember and what to show for one `timeupdate`. */
-export function readProgressSample({ at, duration, furthest, lastPushed }: ProgressSample): ProgressUpdate {
+export function readProgressSample({
+  at,
+  duration,
+  furthest,
+  lastPushed,
+  asked = null,
+}: ProgressSample): ProgressUpdate {
+  // A press the viewer made is answered where they asked, and the far right of the
+  // track asks for the last second — the very range the pin rule throws away, since
+  // it cannot tell the end of a short body from a press at the end. Reading that
+  // landing as the bytes running out discarded the press, left the bar on the old
+  // second, and let the end guard step the film back eight seconds later. A sample
+  // that arrives on the asked position is that press being served, not a report.
+  const landing = asked !== null && at > 0 && Math.abs(at - asked) <= PRESS_LANDING_S
   // A sample pinned to the duration while playback is far behind it is the end of
   // the delivered bytes, not a place the viewer reached: the bar must not follow
   // it, and it must never teach the player that the film was watched to its end.
-  const pinned = at >= duration - 1 && furthest < duration - END_MARGIN_S
+  const pinned = !landing && at >= duration - 1 && furthest < duration - END_MARGIN_S
   // A normal step is progress. The first sample counts wherever it is, because a
   // film continued from a saved position starts minutes in; before the duration is
   // known only the opening half minute is trusted, since a jump cannot then be told
-  // apart from a start. Deliberate moves are already credited by the player, so
-  // they arrive here as a step of zero.
+  // apart from a start.
   const step = at - furthest
-  const reached = at > 0 && !pinned && (furthest > 0 ? step > 0 && step < STEP_S : duration > 0 || at < 30)
+  const reached = landing || (at > 0 && !pinned && (furthest > 0 ? step > 0 && step < STEP_S : duration > 0 || at < 30))
   return {
-    furthest: reached ? at : furthest,
+    // A landing can sit a fraction behind the credited press target, so the furthest
+    // real position only ever moves forward.
+    furthest: reached ? Math.max(furthest, at) : furthest,
     // Labels show whole seconds, so half-second renders are wasted work.
     publish: !pinned && Math.abs(at - lastPushed) >= 0.5 ? at : null,
   }

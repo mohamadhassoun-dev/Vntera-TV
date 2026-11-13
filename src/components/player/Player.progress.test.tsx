@@ -107,6 +107,8 @@ interface Rendered {
   slider: HTMLElement
   onProgress: ReturnType<typeof vi.fn>
   bar: () => number
+  /** The panel handing over another source on the same element. */
+  render: (src: string) => void
 }
 
 function mount(): Rendered {
@@ -115,17 +117,14 @@ function mount(): Rendered {
   const onProgress = vi.fn()
   const host = container
   root = createRoot(host)
-  act(() => {
-    root?.render(
-      <Player
-        src="https://panel.test/film.mp4"
-        title="A long film"
-        onExit={() => {}}
-        onProgress={onProgress}
-        askResume={false}
-      />,
-    )
-  })
+  const render = (src: string) => {
+    act(() => {
+      root?.render(
+        <Player src={src} title="A long film" onExit={() => {}} onProgress={onProgress} askResume={false} />,
+      )
+    })
+  }
+  render('https://panel.test/film.mp4')
   const video = host.querySelector('video')
   const slider = host.querySelector('[role="slider"][aria-label="Seek"]') as HTMLElement | null
   if (!video || !slider) throw new Error('player did not render a film seek bar')
@@ -137,7 +136,7 @@ function mount(): Rendered {
     const fill = slider.querySelector('.bg-crimson') as HTMLElement | null
     return fill ? Number.parseFloat(fill.style.width) : 0
   }
-  return { container: host, video, slider, onProgress, bar }
+  return { container: host, video, slider, onProgress, bar, render }
 }
 
 const fire = (el: Element, type: string) => {
@@ -227,6 +226,35 @@ describe('a press at the far right of the progress track', () => {
 
     // The position the viewer leaves on is the pressed one, not the old second.
     expect(leave(view)?.[0]).toBe(FILM)
+  })
+
+  it('finishes when the element confirms the press after a source switch cleared the credit', () => {
+    const view = mount()
+    openFilm(view)
+    playTo(view, 300, 0)
+
+    // The press asks for the last second and the player credits it there.
+    pressTrack(view, 720)
+    expect(media.time).toBe(FILM - 1)
+
+    // The panel then answers the seek with another edition on the same element,
+    // which starts the remembered progress from zero. The element lands on the
+    // pressed second: that landing is the press being served, not a fake end, so the
+    // bar follows it and the film finishes instead of being stepped back.
+    view.render('https://panel.test/film-alt.mp4')
+    fire(view.video, 'timeupdate')
+
+    expect(view.bar()).toBeCloseTo(((FILM - 1) / FILM) * 100, 1)
+
+    media.ended = true
+    fire(view.video, 'ended')
+    expect(view.container.textContent).toContain('Finished')
+
+    // Nothing steps the picture back to the old second afterwards.
+    wait(10_000)
+    expect(media.time).toBe(FILM - 1)
+    expect(view.bar()).toBeCloseTo(((FILM - 1) / FILM) * 100, 1)
+    expect(view.container.textContent).toContain('Finished')
   })
 
   it('restores when the element lands somewhere other than the press', () => {

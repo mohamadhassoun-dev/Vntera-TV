@@ -96,6 +96,15 @@ const GIVE_UP_AFTER_MS = 90_000
  * they pressed. Nothing is declared stalled for this long after a seek.
  */
 const SEEK_GRACE_MS = 20_000
+/**
+ * How long a press on the track stays the viewer's outstanding move.
+ *
+ * The press asks for a position and the element answers with a sample sitting
+ * there; the wait is the same eight seconds the end guard gives its restore.
+ * Answered inside it, the landing counts as real progress even on the last
+ * second of the track; afterwards the ordinary step rules decide again.
+ */
+const PRESS_ANSWER_MS = 8_000
 const LIVE_GIVE_UP_AFTER_MS = 25_000
 /**
  * How long a live channel may take to show its first frame.
@@ -194,7 +203,7 @@ export function Player({
    * rather than three refs, because these facts are only ever meaningful
    * together — they all belong to the same gesture, and all reset with it.
    */
-  const seekIntent = useRef({ at: 0, from: 0, absorbed: 0 })
+  const seekIntent = useRef({ at: 0, from: 0, absorbed: 0, to: null as number | null })
   /** True once this source has actually shown a frame, so a slow start is not a stall. */
   const hasPlayed = useRef(false)
   const recoveryTried = useRef(false)
@@ -720,6 +729,12 @@ export function Player({
     const onTime = () => {
       const at = video.currentTime
       clockAt.current = at
+      // The press the viewer last made, while its answer is still on its way. A
+      // sample that lands on it is that press being served, not the delivered
+      // bytes running out; without this the pin rule discarded the landing on the
+      // last second of the track and the end guard stepped the film back.
+      const press = seekIntent.current
+      const asked = press.to !== null && Date.now() - press.at < PRESS_ANSWER_MS ? press.to : null
       // A file whose response stops short pins currentTime to the full duration
       // when it ends. Telling that apart from a real finish — and keeping the bar
       // where the viewer actually is — is `playbackPosition`'s job, so the rules
@@ -729,6 +744,7 @@ export function Player({
         duration: durationAt.current,
         furthest: furthest.current,
         lastPushed: lastPushedTime.current,
+        asked,
       })
       furthest.current = sample.furthest
       if (sample.publish === null) return
@@ -1574,7 +1590,7 @@ export function Player({
     // element answers with "ended": a tap on the bar looked like the film
     // finishing. One second short of it plays out to the end instead.
     const to = !isLive && duration ? seekTarget(ratio, duration) : null
-    seekIntent.current = { at: Date.now(), from: video?.currentTime ?? 0, absorbed: 0 }
+    seekIntent.current = { at: Date.now(), from: video?.currentTime ?? 0, absorbed: 0, to }
     if (!video) return
     if (isLive) {
       if (!liveWindow) return
