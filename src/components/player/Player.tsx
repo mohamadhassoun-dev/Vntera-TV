@@ -9,6 +9,7 @@ import { formatTimecode } from '../../lib/format'
 import { canCastVideo, isNativeShell, startCast } from '../../lib/platform'
 import { releaseOrientation, rotateLandscape, type RotateMode } from '../../lib/orientation'
 import { pictureTurned } from '../../lib/playerLayout'
+import { BUFFER_FLOOR_S, bufferTargetFor, bufferedAhead, hlsBufferProfile } from '../../lib/playbackBuffer'
 import { trackAxis, trackRatio } from '../../lib/seek'
 import { useWakeLock } from '../../lib/hooks'
 import { useSettings } from '../../store/settings'
@@ -197,6 +198,12 @@ export function Player({
   const retuneTimer = useRef<number | null>(null)
   /** When the picture was last tapped, so two taps in the middle pause or play. */
   const lastTap = useRef(0)
+  /**
+   * The player paused playback itself to rebuild the forward buffer. The viewer
+   * did not ask for this, so it must not look like a pause: no controls, just
+   * the loading state, and the picture returns on its own.
+   */
+  const internalHold = useRef(false)
 
   const settings = useSettings()
   const [playing, setPlaying] = useState(false)
@@ -391,7 +398,19 @@ export function Player({
     /** Which rendition the current attempt is on, so a failure can fall back. */
     let usingAlt = startOnAlt
     let cancelled = false
-    const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== ''
+    /**
+     * Safari on iPhone and iPad plays HLS natively, and that is the better
+     * engine there. Elsewhere the element lies: Chrome, the Android WebView and
+     * Electron all answer "maybe" for application/vnd.apple.mpegurl without
+     * being able to play it, so handing them the manifest ended in a media
+     * error and a dead player instead of reaching hls.js.
+     */
+    const appleMobile =
+      /iP(hone|ad|od)/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    const canNativeHls =
+      video.canPlayType('application/vnd.apple.mpegurl') !== '' &&
+      (appleMobile || typeof MediaSource === 'undefined')
 
     const attach = async (url: string) => {
       usingAlt = !!srcAlt && url === srcAlt
@@ -502,15 +521,10 @@ export function Player({
           lowLatencyMode: false,
           // Never fetch a rendition taller than the screen; it only wastes bandwidth.
           capLevelToPlayerSize: true,
-          // The forward buffer is what decides whether a slow patch is visible.
-          // A 20-second ceiling ran dry on every hiccup, so a thin link keeps a
-          // full half-minute and a healthy one builds a minute and more.
-          ...(slowLink
-            ? { abrEwmaDefaultEstimate: 900_000, maxBufferLength: 30, maxMaxBufferLength: 60 }
-            : { abrEwmaDefaultEstimate: 2_000_000, maxBufferLength: 60, maxMaxBufferLength: 120 }),
-          maxBufferSize: 60 * 1000 * 1000,
-          // Keep enough history for a usable live timeshift window.
-          backBufferLength: isLive ? 1800 : 60,
+          // One shared forward-buffer policy for both engines: ~18 s ahead of the
+          // playhead, capped, with a bounded back-buffer and a conservative ABR
+          // start so the first frame is not paid for by a full buffer.
+          ...hlsBufferProfile({ slowLink, isLive }),
         })
         hlsRef.current = hls
         hls.loadSource(url)
@@ -538,8 +552,42 @@ export function Player({
         hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_e, data) => setAudioTrack(data.id))
         hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_e, data) => setSubtitleTrack(data.id))
         hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setLevel(data.level))
+        // Recovery is spent per attach, so a stream that heals keeps its budget
+        // for the next drop instead of dying on a lifetime counter.
+        let netRecoveries = 0
+        let mediaRecoveries = 0
+        let reinits = 0
         hls.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
+          // hls.js already retries the non-fatal ones itself; only a fatal state
+          // leaves the element dead and needs the player to act.
           if (!data.fatal) return
+          const target = hls
+          // A segment that refused or a socket that died: ask the loader for it
+          // again from the current position. The ladder is bounded, so a panel
+          // edge that is really gone still reaches the fall-back below.
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && netRecoveries < 3) {
+            netRecoveries += 1
+            window.setTimeout(() => {
+              if (cancelled || !target || hlsRef.current !== target) return
+              try {
+                target.startLoad()
+              } catch {
+                /* the next fatal error takes the re-init path */
+              }
+            }, 400 * netRecoveries)
+            return
+          }
+          // A decode error usually heals by rebuilding the media source; the
+          // playhead stays where the viewer had it.
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) {
+            mediaRecoveries += 1
+            try {
+              target?.recoverMediaError()
+              return
+            } catch {
+              /* fall through to a clean re-attach */
+            }
+          }
           if (srcAlt && !triedAlt.current) {
             triedAlt.current = true
             hls?.destroy()
@@ -559,6 +607,16 @@ export function Player({
           // A manifest that 503s / 404s can be back a second later on a panel
           // that moves streams between edges, so retry before blaming the channel.
           if (retryFailedTune()) return
+          // Nothing else responded: rebuild the engine once, resuming where the
+          // viewer was. A dead MediaSource is the usual reason a fatal state
+          // survives both recoveries, and it never comes back without this.
+          if (reinits < 1 && !isLive) {
+            reinits += 1
+            resumeAfterRecovery.current = video.currentTime > 2 ? video.currentTime : resumeAfterRecovery.current
+            setNotice('Reconnecting to this video…')
+            setReloadKey((key) => key + 1)
+            return
+          }
           if (onTuneFail?.()) return
           // The library's error code (`bufferStalledError` and friends) is a
           // debug value, not a sentence a viewer can use.
@@ -686,6 +744,12 @@ export function Player({
       armHide()
     }
     const onPause = () => {
+      if (internalHold.current) {
+        // A refill hold, not a viewer pause: keep the chrome away and show the
+        // loading state instead.
+        setBuffering(true)
+        return
+      }
       setPlaying(false)
       setShowControls(true)
       // Paused live (timeshift) still clears itself, so the screen shows video only.
@@ -694,6 +758,7 @@ export function Player({
     }
     const onWaiting = () => setBuffering(true)
     const onPlaying = () => {
+      internalHold.current = false
       hasPlayed.current = true
       // A recovered channel gets its full retry budget back for the next drop.
       tuneRetries.current = 0
@@ -955,16 +1020,89 @@ export function Player({
 
       // 2. One silent re-attach on the same frame, for a dead socket or a stuck
       //    edge request. Never before the first frame: a slow start just needs time.
+      //    The measured cushion decides: a decoder that is stuck behind data it
+      //    already has is worth a re-attach, while an empty buffer means the
+      //    bytes simply have not arrived, and re-attaching there throws away the
+      //    download in flight and starts the wait over.
       if (!isLive && stalledFor >= RECOVER_AFTER_MS && hasPlayed.current && autoRetries.current < 1) {
-        autoRetries.current += 1
-        resumeAfterRecovery.current = video.currentTime
-        setReloadKey((key) => key + 1)
+        if (bufferedAhead(video) >= BUFFER_FLOOR_S) {
+          autoRetries.current += 1
+          resumeAfterRecovery.current = video.currentTime
+          setReloadKey((key) => key + 1)
+        }
       }
     }, 2_000)
     return () => window.clearInterval(timer)
   }, [src, reloadKey, isLive, onStall, retuneLive, onTuneFail])
 
 
+
+  /**
+   * Intelligent buffering for progressive files.
+   *
+   * A progressive MP4 has no segment scheduler to tune: the browser decides how
+   * far it reads ahead, and the only honest measure of the cushion is the
+   * element's own buffered ranges. On a thin link that cushion collapses to a
+   * second or two and the picture starts stalling, resuming, stalling — each
+   * resume throwing away the little that had arrived. When that is measured for
+   * two samples in a row, playback is held deliberately until the buffer is back
+   * to the 15–20 s window (or eight seconds pass, so a link that genuinely
+   * cannot keep up still gets to keep moving). Three holds per source, and never
+   * during a seek that is still being served.
+   *
+   * HLS needs none of this: the same policy is given to hls.js as buffer config.
+   */
+  useEffect(() => {
+    if (!src || isLive) return
+    let lowSamples = 0
+    let holds = 0
+    let holding = false
+    let deadline = 0
+    const timer = window.setInterval(() => {
+      const video = videoRef.current
+      if (!video) return
+      if (holding) {
+        if (bufferedAhead(video) >= bufferTargetFor(video) || Date.now() >= deadline || video.ended) {
+          holding = false
+          internalHold.current = false
+          setBuffering(false)
+          startPlayback(video)
+        }
+        return
+      }
+      if (video.paused || video.ended || video.seeking || !hasPlayed.current) {
+        lowSamples = 0
+        return
+      }
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - seekIntent.current.at < SEEK_GRACE_MS) {
+        lowSamples = 0
+        return
+      }
+      const ahead = bufferedAhead(video)
+      if (ahead <= 0 || ahead >= BUFFER_FLOOR_S) {
+        lowSamples = 0
+        return
+      }
+      lowSamples += 1
+      if (lowSamples < 2 || holds >= 3) return
+      lowSamples = 0
+      holds += 1
+      holding = true
+      internalHold.current = true
+      deadline = Date.now() + 8_000
+      video.pause()
+      setBuffering(true)
+    }, 1_000)
+    return () => {
+      window.clearInterval(timer)
+      if (internalHold.current) {
+        internalHold.current = false
+        const video = videoRef.current
+        if (video && video.isConnected && video.paused) startPlayback(video)
+      }
+    }
+  }, [src, isLive, startPlayback])
 
   // Progress persistence: every 30 s while playing.
   useEffect(() => {
