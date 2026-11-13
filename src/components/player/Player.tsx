@@ -792,13 +792,8 @@ export function Player({
       // the first two short bodies after a seek are absorbed silently: the
       // counter is cleared and the picture returns to the last second that
       // really played.
-      if (
-        duration > 0 &&
-        watched > 0 &&
-        watched < duration - 60 &&
-        Date.now() - lastSeekAt.current < 30_000 &&
-        seekFallbacks.current < 2
-      ) {
+      const shortBody = duration > 0 && watched > 0 && watched < duration - 60
+      if (shortBody && Date.now() - lastSeekAt.current < 30_000 && seekFallbacks.current < 2) {
         seekFallbacks.current += 1
         truncations.current = 0
         resumeAfterRecovery.current = 0
@@ -808,7 +803,7 @@ export function Player({
         setNotice(null)
         return
       }
-      if (duration > 0 && watched > 0 && watched < duration - 60 && truncations.current < 12) {
+      if (shortBody && truncations.current < 12) {
         truncations.current += 1
         // Resume where the picture actually stopped. Only a repeated end at the
         // same place (a damaged stretch, not a slow panel) steps forward, so a
