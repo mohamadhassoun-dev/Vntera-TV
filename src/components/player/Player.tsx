@@ -202,8 +202,7 @@ export function Player({
       if ((err as DOMException | undefined)?.name === 'NotAllowedError') setNeedsTap(true)
     })
   }, [])
-  /** Buffering is taking long enough that the viewer deserves a hint. */
-  const [slowBuffer, setSlowBuffer] = useState(false)
+
   const [current, setCurrent] = useState(0)
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(1)
@@ -910,14 +909,7 @@ export function Player({
     return () => window.clearInterval(timer)
   }, [src, reloadKey, isLive, onStall, retuneLive, onTuneFail])
 
-  useEffect(() => {
-    if (!buffering) {
-      setSlowBuffer(false)
-      return
-    }
-    const timer = window.setTimeout(() => setSlowBuffer(true), 8000)
-    return () => window.clearTimeout(timer)
-  }, [buffering])
+
 
   // Progress persistence: every 30 s while playing.
   useEffect(() => {
@@ -1452,12 +1444,13 @@ export function Player({
       {buffering && !error ? (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/40">
           <span className="h-10 w-10 animate-spin rounded-full border-2 border-white/25 border-t-crimson" />
+          {/* One word, however long it takes. The slow-connection hint was a
+              running commentary on the viewer's own network — it told them
+              nothing they did not know and read as a technical complaint over
+              the film. The spinner is the honest status. */}
           <span className="text-center text-[11px] font-bold uppercase tracking-widest text-ink-soft">
-            {isLive ? 'Loading live stream' : slowBuffer ? 'Slow connection · still loading' : 'Loading'}
+            {isLive ? 'Loading live stream' : 'Loading'}
           </span>
-          {slowBuffer && !isLive ? (
-            <span className="text-[10px] text-ink-mute">Your connection is slower than this file — give it a moment.</span>
-          ) : null}
         </div>
       ) : null}
 
