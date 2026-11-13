@@ -26,6 +26,9 @@ const PASS = process.env.VNTERA_PASS || '4766862424'
 const STATE = process.env.VNTERA_STATE || '.tools/verify-state.json'
 const TIMEOUT_MS = Number(process.env.VNTERA_TIMEOUT_MS || 15000)
 const PROBE_BYTES = 256 * 1024
+/** Playlists point at absolute /hls/<hash>/<n>.ts paths on the SITE, not on the
+ *  /xtream proxy path, so segments resolve against the origin without it. */
+const SITE = ORIGIN.replace(/\/xtream\/?$/, '')
 
 const argv = process.argv.slice(2)
 const arg = (name, fallback) => {
@@ -68,16 +71,33 @@ const probe = async (url) => {
     if (/^#EXTM3U/.test(text)) {
       const uri = text.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('#'))
       if (!uri) return { ok: false, status: res.status, bytes: buf.byteLength, contentType: 'playlist', ms: Date.now() - started, reason: 'empty-playlist' }
-      const segment = await fetch(new URL(uri, url), { signal: AbortSignal.timeout(TIMEOUT_MS) })
-      const segBytes = new Uint8Array(await segment.arrayBuffer())
-      const okSeg = segment.ok && segBytes.byteLength > 2048
-      return {
-        ok: okSeg,
-        status: segment.status,
-        bytes: segBytes.byteLength,
-        contentType: segment.headers.get('content-type') || '',
-        ms: Date.now() - started,
-        reason: okSeg ? null : 'playlist-segment-empty',
+      // A playlist alone is never a pass: it is the segment that proves media.
+      const playlistMs = Date.now() - started
+      try {
+        const segment = await fetch(new URL(uri, SITE + '/'), { signal: AbortSignal.timeout(TIMEOUT_MS) })
+        const segBytes = new Uint8Array(await segment.arrayBuffer())
+        const okSeg = segment.ok && segBytes.byteLength > 2048
+        return {
+          ok: okSeg,
+          partial: !okSeg,
+          status: segment.status,
+          bytes: segBytes.byteLength,
+          contentType: segment.headers.get('content-type') || '',
+          ms: Date.now() - started,
+          playlistMs,
+          reason: okSeg ? null : `playlist-ok-segment-${segment.status || 'empty'}`,
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          partial: true,
+          status: res.status,
+          bytes: buf.byteLength,
+          contentType: 'playlist',
+          ms: Date.now() - started,
+          playlistMs,
+          reason: `playlist-ok-segment-${err.name}`,
+        }
       }
     }
     const first = text.slice(0, 12)
