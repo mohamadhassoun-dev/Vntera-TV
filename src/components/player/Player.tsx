@@ -108,7 +108,7 @@ const LIVE_TUNE_RETRY_DELAYS = [1_200, 2_500, 4_000, 6_000, 8_000]
 const VOD_RETRY_DELAYS = [1_500, 4_000, 8_000]
 /** Idle time before the live overlay clears itself, leaving only the picture. */
 const LIVE_HIDE_DELAY_MS = 6_000
-const HIDE_DELAY_MS = 3_600
+const HIDE_DELAY_MS = 6_000
 
 function isHlsUrl(url: string): boolean {
   return /\.m3u8(\?|$)/i.test(url)
