@@ -177,12 +177,13 @@ export function Player({
   /** Automatic re-attach attempts for a stalling VOD stream, and where to resume. */
   const autoRetries = useRef(0)
   const resumeAfterRecovery = useRef(0)
-  /** When the viewer last moved the timeline themselves. */
-  const lastSeekAt = useRef(0)
-  /** Silent fall-backs allowed for the seek that is currently being served. */
-  const seekFallbacks = useRef(0)
-  /** Position the viewer held before their most recent seek. */
-  const lastSeekFrom = useRef(0)
+  /**
+   * The viewer's most recent move of the timeline: when it happened, where they
+   * left from, and how many short bodies it has already absorbed. One record
+   * rather than three refs, because these facts are only ever meaningful
+   * together — they all belong to the same gesture, and all reset with it.
+   */
+  const seekIntent = useRef({ at: 0, from: 0, absorbed: 0 })
   /** True once this source has actually shown a frame, so a slow start is not a stall. */
   const hasPlayed = useRef(false)
   const recoveryTried = useRef(false)
@@ -790,19 +791,18 @@ export function Player({
       // A seek that lands on a short body is the panel delivering less than it
       // promised for that byte range, not a damaged stretch of the film.
       // Reloading here is what snapped the timer back to 0:00 and flashed
-      // "Reconnecting" on a video the viewer had just chosen a position in, so
-      // the first two short bodies after a seek are absorbed silently: the
-      // counter is cleared and the picture returns to the last second that
-      // really played.
+      // "Reconnecting" on a video the viewer had just chosen a position in, so a
+      // short body within the seek's own window is absorbed silently: the film
+      // returns to the second it left from, twice at most, and the reconnect
+      // path below only sees what survives that.
       const shortBody = duration > 0 && watched > 0 && watched < duration - 60
-      if (shortBody && Date.now() - lastSeekAt.current < 30_000 && seekFallbacks.current < 2) {
-        seekFallbacks.current += 1
+      const seek = seekIntent.current
+      const afterSeek = Date.now() - seek.at < 30_000
+      if (shortBody && afterSeek && seek.absorbed < 2) {
+        seek.absorbed += 1
         truncations.current = 0
         resumeAfterRecovery.current = 0
-        // Back to where they were, and nothing else: the ref holds a number, so
-        // the isFinite guard that used to sit here was checking the ref rather
-        // than the media element.
-        if (lastSeekFrom.current > 0) video.currentTime = lastSeekFrom.current
+        if (seek.from > 0) video.currentTime = seek.from
         setNotice(null)
         return
       }
@@ -927,7 +927,7 @@ export function Player({
       // 1. A lighter edition, when the title has one.
       // A seek that is still being served is not a stall: switching edition here
       // is what reloaded the film and lost the position the viewer just chose.
-      const seeking = Date.now() - lastSeekAt.current < SEEK_GRACE_MS
+      const seeking = Date.now() - seekIntent.current.at < SEEK_GRACE_MS
       if (seeking) return
 
       if (!isLive && stalledFor >= DOWNGRADE_AFTER_MS && !recoveryTried.current) {
@@ -1339,13 +1339,10 @@ export function Player({
   }
 
   const seekTo = (clientX: number, clientY: number, element: HTMLElement) => {
-    lastSeekAt.current = Date.now()
-    seekFallbacks.current = 0
-    // Where the viewer was before this seek. Falling back means returning here,
-    // never to the last buffered second: a tail range the browser already holds
-    // sits near the end of the film, which threw a viewer who asked for 14:17
-    // into the closing credits.
-    lastSeekFrom.current = videoRef.current?.currentTime ?? 0
+    // Falling back means returning here, never to the last buffered second: a
+    // tail range the browser already holds sits near the end of the film, which
+    // threw a viewer who asked for 14:17 into the closing credits.
+    seekIntent.current = { at: Date.now(), from: videoRef.current?.currentTime ?? 0, absorbed: 0 }
     const ratio = trackRatio(
       { x: clientX, y: clientY },
       element.getBoundingClientRect(),
