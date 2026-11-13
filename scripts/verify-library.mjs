@@ -214,7 +214,7 @@ for (const [index, item] of targets.entries()) {
 const counted = results.filter((r) => !r.skipped)
 const ok = counted.filter((r) => r.ok).length
 console.log(
-  `\ntested ${counted.length} · media bytes ${ok} · failed ${counted.length - ok} · state ${STATE}` +
+  `\ntested ${counted.length} · media bytes ${ok} · partial ${counted.filter((r) => r.partial).length} · failed ${counted.filter((r) => !r.ok && !r.partial).length} · state ${STATE}` +
     (results.length > counted.length ? ` · ${results.length - counted.length} already verified` : ''),
 )
 const slowest = counted.filter((r) => r.ok).sort((a, b) => b.ms - a.ms)[0]
