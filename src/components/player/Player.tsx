@@ -799,8 +799,10 @@ export function Player({
         seekFallbacks.current += 1
         truncations.current = 0
         resumeAfterRecovery.current = 0
-        const from = lastSeekFrom.current
-        if (Number.isFinite(from) && from > 0) video.currentTime = from
+        // Back to where they were, and nothing else: the ref holds a number, so
+        // the isFinite guard that used to sit here was checking the ref rather
+        // than the media element.
+        if (lastSeekFrom.current > 0) video.currentTime = lastSeekFrom.current
         setNotice(null)
         return
       }
