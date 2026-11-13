@@ -802,8 +802,24 @@ export function Player({
         seek.absorbed += 1
         truncations.current = 0
         resumeAfterRecovery.current = 0
-        if (seek.from > 0) video.currentTime = seek.from
-        setNotice(null)
+        // The panel often needs several seconds to serve the range a seek asked
+        // for. Deciding at once threw away seeks that were already arriving, so
+        // the range gets eight seconds: step back only if the picture still has
+        // not moved, and only for the seek that asked (a newer one wins).
+        const gesture = seek
+        const from = seek.from
+        const stoppedAt = video.currentTime
+        window.setTimeout(() => {
+          const el = videoRef.current
+          if (!el || seekIntent.current !== gesture) return
+          const buffered = el.buffered
+          const grew = buffered.length > 0 && buffered.end(buffered.length - 1) > stoppedAt + 1
+          if (!el.ended && (el.readyState >= 3 || grew)) return
+          truncations.current = 0
+          resumeAfterRecovery.current = 0
+          if (from > 0) el.currentTime = from
+          setNotice(null)
+        }, 8_000)
         return
       }
       if (shortBody && truncations.current < 12) {
