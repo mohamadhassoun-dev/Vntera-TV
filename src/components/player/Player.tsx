@@ -268,6 +268,8 @@ export function Player({
   }, [resumeOpen, duration, startAt])
   const [ended, setEnded] = useState(false)
   const [scrubbing, setScrubbing] = useState(false)
+  /** Where the pointer sits on a seek bar, for the read-out above it. */
+  const [hoverAt, setHoverAt] = useState<{ x: number; width: number; t: number } | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   /** A failure that does not stop the film (no PiP, no cast target) is a
    *  passing remark, not a reason to cover the picture. */
@@ -1287,6 +1289,26 @@ export function Player({
    * Where along the track the finger is. Cinema mode rotates the whole player, so
    * the bar runs down the screen and only the vertical coordinate means anything.
    */
+  /**
+   * The pointer's position on a seek bar, as the time it points at. This is a
+   * read-out only: nothing is fetched and nothing moves until the viewer
+   * commits, so sweeping across a two-hour film costs no bandwidth at all —
+   * which matters here, because a second video decode would open a second
+   * connection to a panel that allows one.
+   */
+  const hoverPreview = (clientX: number, clientY: number, element: HTMLElement) => {
+    // Cinema mode turns the player on its side. A bubble anchored to a
+    // horizontal bar would point at the wrong second, so it stays out of the way.
+    if (rotated) return
+    const box = element.getBoundingClientRect()
+    if (!box.width) return
+    const span = isLive ? (liveWindow ? liveWindow.end - liveWindow.start : 0) : duration
+    if (!span) return
+    const ratio = trackRatio({ x: clientX, y: clientY }, box, trackAxis(false))
+    const base = isLive && liveWindow ? liveWindow.start : 0
+    setHoverAt({ x: ratio * box.width, width: box.width, t: base + ratio * span })
+  }
+
   const seekTo = (clientX: number, clientY: number, element: HTMLElement) => {
     const ratio = trackRatio(
       { x: clientX, y: clientY },
@@ -1611,15 +1633,27 @@ export function Player({
                     className="group/seek relative flex h-6 cursor-pointer items-center"
                     onMouseDown={(e) => {
                       setScrubbing(true)
+                      hoverPreview(e.clientX, e.clientY, e.currentTarget)
                       seekTo(e.clientX, e.clientY, e.currentTarget)
                     }}
                     onMouseMove={(e) => {
+                      hoverPreview(e.clientX, e.clientY, e.currentTarget)
                       if (scrubbing) seekTo(e.clientX, e.clientY, e.currentTarget)
                     }}
                     onMouseUp={() => setScrubbing(false)}
-                    onMouseLeave={() => setScrubbing(false)}
-                    onTouchStart={(e) => seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)}
-                    onTouchMove={(e) => seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)}
+                    onMouseLeave={() => {
+                      setScrubbing(false)
+                      setHoverAt(null)
+                    }}
+                    onTouchStart={(e) => {
+                      hoverPreview(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
+                      seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
+                    }}
+                    onTouchMove={(e) => {
+                      hoverPreview(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
+                      seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
+                    }}
+                    onTouchEnd={() => setHoverAt(null)}
                     role="slider"
                     aria-label="Seek live TV"
                     aria-valuemin={Math.round(liveWindow.start)}
@@ -1629,6 +1663,14 @@ export function Player({
                   >
                     <div className="relative h-1 w-full rounded-full bg-white/25">
                       <div className="absolute inset-y-0 left-0 rounded-full bg-crimson" style={{ width: `${livePct}%` }} />
+                      {hoverAt ? (
+                        <span
+                          className="pointer-events-none absolute bottom-5 z-20 -translate-x-1/2 whitespace-nowrap rounded-[4px] border border-white/15 bg-black/85 px-2 py-1 text-[11px] font-semibold tabular text-white shadow-lg"
+                          style={{ left: Math.max(30, Math.min(hoverAt.width - 30, hoverAt.x)) }}
+                        >
+                          {formatTimecode(hoverAt.t - (liveWindow ? liveWindow.start : 0))}
+                        </span>
+                      ) : null}
                       <span className="absolute -top-1 h-3 w-[2px] bg-live" style={{ left: 'calc(100% - 2px)' }} title="Live edge" />
                       <span
                         className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow transition-transform group-hover/seek:scale-125"
@@ -1678,15 +1720,27 @@ export function Player({
                 className="group/seek relative flex h-6 cursor-pointer items-center"
                 onMouseDown={(e) => {
                   setScrubbing(true)
+                  hoverPreview(e.clientX, e.clientY, e.currentTarget)
                   seekTo(e.clientX, e.clientY, e.currentTarget)
                 }}
                 onMouseMove={(e) => {
+                  hoverPreview(e.clientX, e.clientY, e.currentTarget)
                   if (scrubbing) seekTo(e.clientX, e.clientY, e.currentTarget)
                 }}
                 onMouseUp={() => setScrubbing(false)}
-                onMouseLeave={() => setScrubbing(false)}
-                onTouchStart={(e) => seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)}
-                onTouchMove={(e) => seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)}
+                onMouseLeave={() => {
+                  setScrubbing(false)
+                  setHoverAt(null)
+                }}
+                onTouchStart={(e) => {
+                  hoverPreview(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
+                  seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
+                }}
+                onTouchMove={(e) => {
+                  hoverPreview(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
+                  seekTo(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget)
+                }}
+                onTouchEnd={() => setHoverAt(null)}
                 role="slider"
                 aria-label="Seek"
                 aria-valuemin={0}
@@ -1703,6 +1757,14 @@ export function Player({
                       style={{ left: `${(introEnd / duration) * 100}%` }}
                       title="Intro ends"
                     />
+                  ) : null}
+                  {hoverAt ? (
+                    <span
+                      className="pointer-events-none absolute bottom-5 z-20 -translate-x-1/2 whitespace-nowrap rounded-[4px] border border-white/15 bg-black/85 px-2 py-1 text-[11px] font-semibold tabular text-white shadow-lg"
+                      style={{ left: Math.max(30, Math.min(hoverAt.width - 30, hoverAt.x)) }}
+                    >
+                      {formatTimecode(hoverAt.t)}
+                    </span>
                   ) : null}
                   <span
                     className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow transition-transform group-hover/seek:scale-125"

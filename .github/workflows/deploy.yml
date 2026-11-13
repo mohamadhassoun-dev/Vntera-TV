@@ -42,7 +42,14 @@ jobs:
       # put it in the published folder. Publishing without it would leave the
       # Windows button pointing at a page that is not there, so this step fails
       # loudly instead of skipping.
+      # A missing release asset must never be able to blank the live site: the
+      # host's own git deploy has already emptied the document root by this
+      # point, so a failure here used to skip every remaining step and leave the
+      # domain 404 until someone restored it by hand. The step still fails the
+      # run (the installer genuinely is missing), but publishing no longer waits
+      # on it.
       - name: Stage the Windows installer
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -99,12 +106,18 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' http://movies.vntera.com/index.html || true)
             echo "attempt $i: $code"
             if [ "$code" = "200" ]; then
-              # The Windows button has to serve the real executable, not the app
-              # shell: a one-byte Range request proves the file is on the host.
-              head -c1 /dev/zero | curl -s -r 0-0 -o /tmp/exe-byte.bin -w 'installer %{http_code} %{size_download}\n' \
-                "http://movies.vntera.com/files/Vntera-Setup-$version.exe"
-              test "$(cat /tmp/exe-byte.bin)" = "M"
-              exit 0
+              # The site is up; this step runs after publishing, so a missing
+              # installer can only fail the run, never the domain.
+              if [ -f "dist/files/Vntera-Setup-$version.exe" ]; then
+                # The Windows button has to serve the real executable, not the
+                # app shell: a one-byte Range request proves it is on the host.
+                head -c1 /dev/zero | curl -s -r 0-0 -o /tmp/exe-byte.bin -w 'installer %{http_code} %{size_download}\n' \
+                  "http://movies.vntera.com/files/Vntera-Setup-$version.exe"
+                test "$(cat /tmp/exe-byte.bin)" = "M"
+                exit 0
+              fi
+              echo "live site is up, but no installer was staged for v$version" >&2
+              exit 1
             fi
             sleep 15
           done
