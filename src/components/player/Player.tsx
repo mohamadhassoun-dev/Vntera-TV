@@ -80,7 +80,14 @@ const clearTransientError = (current: string | null) => (current && TRANSIENT_ER
 /** How long a stalled stream waits before each rescue step, on a slow connection. */
 const DOWNGRADE_AFTER_MS = 12_000
 const RECOVER_AFTER_MS = 25_000
-const GIVE_UP_AFTER_MS = 45_000
+const GIVE_UP_AFTER_MS = 90_000
+/**
+ * A seek asks the panel for a fresh byte range, which on this provider can take
+ * ten seconds or more. Judging the stream "stalled" during that window switched
+ * edition — a reload that landed the viewer back where they had been, not where
+ * they pressed. Nothing is declared stalled for this long after a seek.
+ */
+const SEEK_GRACE_MS = 20_000
 const LIVE_GIVE_UP_AFTER_MS = 25_000
 /**
  * How long a live channel may take to show its first frame.
@@ -170,6 +177,8 @@ export function Player({
   /** Automatic re-attach attempts for a stalling VOD stream, and where to resume. */
   const autoRetries = useRef(0)
   const resumeAfterRecovery = useRef(0)
+  /** When the viewer last moved the timeline themselves. */
+  const lastSeekAt = useRef(0)
   /** True once this source has actually shown a frame, so a slow start is not a stall. */
   const hasPlayed = useRef(false)
   const recoveryTried = useRef(false)
@@ -893,6 +902,11 @@ export function Player({
       }
 
       // 1. A lighter edition, when the title has one.
+      // A seek that is still being served is not a stall: switching edition here
+      // is what reloaded the film and lost the position the viewer just chose.
+      const seeking = Date.now() - lastSeekAt.current < SEEK_GRACE_MS
+      if (seeking) return
+
       if (!isLive && stalledFor >= DOWNGRADE_AFTER_MS && !recoveryTried.current) {
         recoveryTried.current = true
         if (onStall?.()) return
@@ -1302,6 +1316,7 @@ export function Player({
   }
 
   const seekTo = (clientX: number, clientY: number, element: HTMLElement) => {
+    lastSeekAt.current = Date.now()
     const ratio = trackRatio(
       { x: clientX, y: clientY },
       element.getBoundingClientRect(),
