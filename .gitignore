@@ -49,3 +49,6 @@ cloud_dvr_snapshot_vault_*/
 
 # scratch verification output
 .tmp-*/
+
+# dev-only player/media harness proof rig (generated clips, screenshots, runner)
+harness/

@@ -964,6 +964,15 @@ export function Player({
       // Autoplay only when the viewer really reached the end. A file that ended
       // early must never carry them into the next episode on its own.
       const reachedEnd = finishedProperly(watched, duration)
+      // The last frame arrives with no further `timeupdate`, so the bar used to
+      // stop a render short of the end while the card already said finished.
+      // Only a real finish is credited to the end; a truncated one keeps the
+      // position it actually reached.
+      if (reachedEnd) {
+        furthest.current = Math.max(furthest.current, duration)
+        lastPushedTime.current = duration
+        setCurrent(duration)
+      }
       if (settings.autoplayNext && onNext && reachedEnd) onNext()
     }
     const onVolume = () => {
@@ -1526,11 +1535,6 @@ export function Player({
   }
 
   const progressPct = duration ? Math.min(100, (current / duration) * 100) : 0
-  const bufferedPct = (() => {
-    const video = videoRef.current
-    if (!video || !video.buffered.length || !duration) return 0
-    return Math.min(100, (video.buffered.end(video.buffered.length - 1) / duration) * 100)
-  })()
 
   /**
    * Where along the track the finger is. Cinema mode rotates the whole player, so
@@ -2025,7 +2029,6 @@ export function Player({
                 tabIndex={0}
               >
                 <div className="relative h-1 w-full rounded-full bg-white/25">
-                  <div className="absolute inset-y-0 left-0 rounded-full bg-white/30" style={{ width: `${bufferedPct}%` }} />
                   <div className="absolute inset-y-0 left-0 rounded-full bg-crimson" style={{ width: `${progressPct}%` }} />
                   {introEnd && duration > 0 ? (
                     <span
