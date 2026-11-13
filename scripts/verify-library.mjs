@@ -134,12 +134,21 @@ const note = (t) => {
 }
 
 if (wantMovies || wantLive || wantEpisodes) {
+  // One category is a handful of titles at best: a sample drawn from it says
+  // nothing about the library. Walk categories until the sample is full, so a
+  // copy buried in a different genre is actually reached.
   if (wantMovies) {
     const cats = await api('get_vod_categories')
-    const cat = Array.isArray(cats) ? cats[0] : null
-    const list = await api('get_vod_streams', cat ? { category_id: cat.category_id } : {})
-    for (const m of (Array.isArray(list) ? list : []).slice(0, wantMovies)) {
-      note({ kind: 'movie', id: m.stream_id, title: m.name, category: cat?.category_name ?? 'all', ext: m.container_extension })
+    const list = Array.isArray(cats) ? cats : []
+    let taken = 0
+    for (const cat of list) {
+      if (taken >= wantMovies) break
+      const rows = await api('get_vod_streams', { category_id: cat.category_id })
+      const items = (Array.isArray(rows) ? rows : []).slice(0, wantMovies - taken)
+      for (const m of items) {
+        note({ kind: 'movie', id: m.stream_id, title: m.name, category: cat.category_name ?? 'all', ext: m.container_extension })
+        taken += 1
+      }
     }
   }
   if (wantLive) {

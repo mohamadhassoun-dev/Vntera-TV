@@ -812,9 +812,11 @@ export function Player({
         window.setTimeout(() => {
           const el = videoRef.current
           if (!el || seekIntent.current !== gesture) return
-          const buffered = el.buffered
-          const grew = buffered.length > 0 && buffered.end(buffered.length - 1) > stoppedAt + 1
-          if (!el.ended && (el.readyState >= 3 || grew)) return
+          // The only proof the range arrived is the picture moving past where it
+          // stopped. readyState and buffered both stay high on an element that
+          // has ended and will never continue, which is how this guard left a
+          // film parked on its last frame instead of returning it.
+          if (el.currentTime > stoppedAt + 1) return
           truncations.current = 0
           resumeAfterRecovery.current = 0
           if (from > 0) el.currentTime = from
