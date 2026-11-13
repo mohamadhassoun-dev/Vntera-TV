@@ -179,6 +179,8 @@ export function Player({
   const resumeAfterRecovery = useRef(0)
   /** When the viewer last moved the timeline themselves. */
   const lastSeekAt = useRef(0)
+  /** Silent fall-backs allowed for the seek that is currently being served. */
+  const seekFallbacks = useRef(0)
   /** True once this source has actually shown a frame, so a slow start is not a stall. */
   const hasPlayed = useRef(false)
   const recoveryTried = useRef(false)
@@ -783,6 +785,29 @@ export function Player({
       // After a rescue the new element can end before its first timeupdate, so the
       // best known position is whichever of these is further along.
       const watched = Math.max(furthest.current, resumeAfterRecovery.current)
+      // A seek that lands on a short body is the panel delivering less than it
+      // promised for that byte range, not a damaged stretch of the film.
+      // Reloading here is what snapped the timer back to 0:00 and flashed
+      // "Reconnecting" on a video the viewer had just chosen a position in, so
+      // the first two short bodies after a seek are absorbed silently: the
+      // counter is cleared and the picture returns to the last second that
+      // really played.
+      if (
+        duration > 0 &&
+        watched > 0 &&
+        watched < duration - 60 &&
+        Date.now() - lastSeekAt.current < 30_000 &&
+        seekFallbacks.current < 2
+      ) {
+        seekFallbacks.current += 1
+        truncations.current = 0
+        resumeAfterRecovery.current = 0
+        const ranges = video.buffered
+        const safe = ranges.length ? Math.max(0, ranges.end(ranges.length - 1) - 1.5) : Math.max(0, watched - 2)
+        if (Number.isFinite(safe) && safe > 0) video.currentTime = safe
+        setNotice(null)
+        return
+      }
       if (duration > 0 && watched > 0 && watched < duration - 60 && truncations.current < 12) {
         truncations.current += 1
         // Resume where the picture actually stopped. Only a repeated end at the
@@ -1317,6 +1342,7 @@ export function Player({
 
   const seekTo = (clientX: number, clientY: number, element: HTMLElement) => {
     lastSeekAt.current = Date.now()
+    seekFallbacks.current = 0
     const ratio = trackRatio(
       { x: clientX, y: clientY },
       element.getBoundingClientRect(),
