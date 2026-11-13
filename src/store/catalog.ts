@@ -235,6 +235,23 @@ let persistAt = 0
 let storedMovies = 0
 let storedSeries = 0
 let storedChannelsFor = 0
+/**
+ * Category pulls that came back empty-handed during this load. The movie and
+ * series tasks swallow their own failures so one bad category cannot sink the
+ * library, which means an unreachable panel reaches the end of a load looking
+ * exactly like a subscription with nothing in it — this is what tells them apart.
+ */
+let panelFailures = 0
+/**
+ * Requests that have failed in a row with nothing succeeding between them. A
+ * panel that is down answers every category the same way, and walking the whole
+ * line-up — twice, because failed categories are retried — took about two
+ * minutes before the viewer was told anything. Eight in a row is past any burst
+ * of refusals the retry logic already absorbs, so the sweep gives up there and
+ * the "cannot reach" card appears while the viewer is still watching the screen.
+ */
+let consecutiveFailures = 0
+const GIVE_UP_AFTER = 8
 /** Saves queue behind each other: two overlapping writers would interleave parts. */
 let writeChain: Promise<void> = Promise.resolve()
 /**
@@ -321,6 +338,8 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
     storedMovies = 0
     storedSeries = 0
     libraryComplete = false
+    panelFailures = 0
+    consecutiveFailures = 0
 
     const run = async () => {
       const cached = await readCache(account)
@@ -643,9 +662,15 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
               const list = await fetchOne(id, take)
               // A body that never streamed arrives whole here instead.
               if (!streamed && list.length) take(list)
+              consecutiveFailures = 0
               return true
             } catch (error) {
+              panelFailures += 1
+              consecutiveFailures += 1
               console.warn(`[catalog] ${label} category failed`, id, error)
+              // The panel is not answering at all: stop walking the line-up and
+              // let the load end with the honest error.
+              if (consecutiveFailures >= GIVE_UP_AFTER) throw error
               return false
             }
           }
@@ -732,6 +757,9 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
 
         const results = await Promise.allSettled([liveTask, vodTask, seriesTask])
         const failed = results.filter((r) => r.status === 'rejected').length
+        // Kept so an outage reports what actually happened rather than blaming
+        // the subscription for a panel that never answered.
+        const firstFailure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')?.reason
 
         if (!live.length && !channels.length && cached?.channels.length) {
           // The live list could not be fetched at all. The channels on disk are
@@ -765,6 +793,17 @@ export const useCatalog = create<CatalogStore>((set, get) => ({
         }
 
         if (!live.length && !vod.length && !seriesRaw.length) {
+          // Nothing arrived at all. When the panel answered but sent nothing, the
+          // subscription is the likely cause; when the requests themselves failed,
+          // say that instead of sending the viewer to check a subscription that
+          // is fine.
+          if (firstFailure instanceof PanelError) throw firstFailure
+          if (panelFailures > 0) {
+            throw new PanelError(
+              'network',
+              'Cannot reach Vntera. Check the portal address, or try again in a moment.',
+            )
+          }
           throw new PanelError('server', 'Vntera returned an empty library. Check that the subscription is active.')
         }
 

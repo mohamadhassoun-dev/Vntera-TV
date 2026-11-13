@@ -41,6 +41,7 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
   const navigate = useNavigate()
   const status = useAuth((s) => s.status)
   const offline = useCatalog((s) => s.offline)
+  const hasLibrary = useCatalog((s) => Boolean(s.snapshot))
   const online = useOnline()
   const unread = useLibrary((s) => s.notifications.filter((n) => !n.read).length)
   const { toasts, dismiss } = useUI()
@@ -98,7 +99,9 @@ export function AppShell({ children, formFactor }: { children: React.ReactNode; 
       {(!online || offline) && status !== 'reauth' ? (
         <div className="flex items-center gap-2 bg-layer-3 px-4 py-1.5 text-[11px] text-ink-soft md:px-8">
           <Icon name="cloud" size={13} />
-          Offline — showing your cached library.
+          {/* With no library on the device there is nothing cached to show, and
+              saying otherwise is the one thing a viewer can see is untrue. */}
+          {hasLibrary ? 'Offline — showing your cached library.' : 'Offline — reconnecting to Vntera…'}
         </div>
       ) : null}
     </>

@@ -26,6 +26,8 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
 const DownloadsPage = lazy(() => import('./pages/DownloadsPage'))
 
+import { CatalogGate } from './components/CatalogGate'
+
 function Protected({ children }: { children: React.ReactNode }) {
   const status = useAuth((s) => s.status)
   if (status === 'anon') return <Navigate to="/login" replace />
@@ -222,14 +224,63 @@ export default function App() {
                   <Routes>
                     <Route path="/" element={<HomePage />} />
                     <Route path="/live" element={<LivePage />} />
-                    <Route path="/movies" element={<MoviesPage />} />
-                    <Route path="/series" element={<SeriesPage />} />
-                    <Route path="/new" element={<NewPopularPage />} />
-                    <Route path="/my-list" element={<MyListPage />} />
+                    <Route
+                      path="/movies"
+                      element={
+                        <CatalogGate title="Could not load your movies">
+                          <MoviesPage />
+                        </CatalogGate>
+                      }
+                    />
+                    <Route
+                      path="/series"
+                      element={
+                        <CatalogGate title="Could not load your shows">
+                          <SeriesPage />
+                        </CatalogGate>
+                      }
+                    />
+                    <Route
+                      path="/new"
+                      element={
+                        <CatalogGate title="Could not load new & popular">
+                          <NewPopularPage />
+                        </CatalogGate>
+                      }
+                    />
+                    <Route
+                      path="/my-list"
+                      element={
+                        <CatalogGate title="Could not load your list">
+                          <MyListPage />
+                        </CatalogGate>
+                      }
+                    />
                     <Route path="/downloads" element={<DownloadsPage />} />
-                    <Route path="/title/:kind/:id" element={<DetailsPage />} />
-                    <Route path="/search" element={<SearchPage />} />
-                    <Route path="/collection/:slug" element={<CollectionPage />} />
+                    <Route
+                      path="/title/:kind/:id"
+                      element={
+                        <CatalogGate title="Could not load this title">
+                          <DetailsPage />
+                        </CatalogGate>
+                      }
+                    />
+                    <Route
+                      path="/search"
+                      element={
+                        <CatalogGate title="Could not load your library">
+                          <SearchPage />
+                        </CatalogGate>
+                      }
+                    />
+                    <Route
+                      path="/collection/:slug"
+                      element={
+                        <CatalogGate title="Could not load this collection">
+                          <CollectionPage />
+                        </CatalogGate>
+                      }
+                    />
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
