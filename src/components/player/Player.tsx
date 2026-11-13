@@ -104,6 +104,8 @@ const LIVE_FIRST_FRAME_MS = 60_000
  * re-allocate a stream to another edge, so an instant error card was wrong there.
  */
 const LIVE_TUNE_RETRY_DELAYS = [1_200, 2_500, 4_000, 6_000, 8_000]
+/** A film that fails before its first frame is re-asked on this ladder. */
+const VOD_RETRY_DELAYS = [1_500, 4_000, 8_000]
 /** Idle time before the live overlay clears itself, leaving only the picture. */
 const LIVE_HIDE_DELAY_MS = 6_000
 const HIDE_DELAY_MS = 3_600
@@ -177,6 +179,7 @@ export function Player({
   const preferAlt = useRef(false)
   /** Automatic re-attach attempts for a stalling VOD stream, and where to resume. */
   const autoRetries = useRef(0)
+  const vodRetries = useRef(0)
   const resumeAfterRecovery = useRef(0)
   /**
    * The viewer's most recent move of the timeline: when it happened, where they
@@ -678,6 +681,7 @@ export function Player({
   // A new source (another title or edition) gets its own recovery budget.
   useEffect(() => {
     autoRetries.current = 0
+    vodRetries.current = 0
     hasPlayed.current = false
     recoveryTried.current = false
     truncations.current = 0
@@ -818,6 +822,16 @@ export function Player({
         autoRetries.current += 1
         resumeAfterRecovery.current = video.currentTime
         setReloadKey((key) => key + 1)
+        return
+      }
+      // A fatal error before any frame is often the panel answering 429/503
+      // for a moment (its connection limit). Re-ask on a short, bounded ladder
+      // before showing the card; the card stays generic.
+      if (fatal && !isLive && video.currentTime < 2 && vodRetries.current < VOD_RETRY_DELAYS.length) {
+        const delay = VOD_RETRY_DELAYS[vodRetries.current]
+        vodRetries.current += 1
+        setNotice('The stream is busy, retrying…')
+        window.setTimeout(() => setReloadKey((key) => key + 1), delay)
         return
       }
       if (isLive) onFatalError?.()
